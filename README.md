@@ -23,6 +23,13 @@ It leverages large language models through schema-guided extraction (via [LangEx
 pip install -e .
 ```
 
+This will install the `genephenextract` command-line entry point onto your PATH. If you prefer
+not to install the package, you can still run the tool in-place with:
+
+```bash
+python -m genephenextract --query "KCNH2" --mock
+```
+
 To use the LangExtract-backed extractor you will also need to install the optional dependency:
 
 ```bash
