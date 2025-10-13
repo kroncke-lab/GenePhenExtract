@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CustomGenePhenExtractSchema",
+  "type": "object",
+  "properties": {
+    "variant": {"type": "string"},
+    "carrier_status": {"type": ["string", "null"]},
+    "phenotypes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "ontology_id": {"type": ["string", "null"]}
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    },
+    "age": {"type": ["number", "null"]},
+    "sex": {"type": ["string", "null"]},
+    "treatment": {"type": ["string", "null"]},
+    "outcome": {"type": ["string", "null"]}
+  },
+  "required": ["variant"],
+  "additionalProperties": false
+}

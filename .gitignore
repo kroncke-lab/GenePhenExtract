@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.build/
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Virtual environments
+.env
+.venv
+
+# IDE files
+.idea/
+.vscode/
+
+# Coverage
+htmlcov/
+.coverage*
+*.cover
+
+# Misc
+.DS_Store
+
