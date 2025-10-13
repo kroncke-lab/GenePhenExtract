@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .extraction import BaseExtractor, MockExtractor
 from .models import ExtractionResult, PipelineInput
+from .hpo import PhenotypeOntologyMapper
 from .pubmed import PubMedClient
 
 logger = logging.getLogger(__name__)
@@ -20,21 +21,34 @@ class ExtractionPipeline:
         *,
         pubmed_client: Optional[PubMedClient] = None,
         extractor: Optional[BaseExtractor] = None,
+        phenotype_mapper: Optional[PhenotypeOntologyMapper] = None,
     ) -> None:
         self.pubmed_client = pubmed_client or PubMedClient()
         self.extractor = extractor or MockExtractor()
+        self.phenotype_mapper = phenotype_mapper or PhenotypeOntologyMapper.default()
 
     def run(self, payload: PipelineInput) -> List[ExtractionResult]:
         pmids = self._determine_pmids(payload)
         logger.info("Processing %d pmids", len(pmids))
         results: List[ExtractionResult] = []
+        article_details: Dict[str, Dict[str, Optional[str]]] = self.pubmed_client.fetch_details(pmids)
         for pmid in pmids:
-            abstract = self.pubmed_client.fetch_abstract(pmid)
+            details = article_details.get(pmid, {})
+            abstract = details.get("abstract") if details else None
+            if not abstract:
+                abstract = self.pubmed_client.fetch_abstract(pmid)
             if not abstract:
                 logger.warning("Skipping PMID %s due to missing abstract", pmid)
                 continue
             logger.debug("Running extractor for PMID %s", pmid)
             result = self.extractor.extract(abstract, pmid=pmid, schema_path=payload.schema_path)
+            result.abstract = abstract
+            if details:
+                result.title = details.get("title")
+                result.journal = details.get("journal")
+                result.publication_date = details.get("publication_date")
+            if self.phenotype_mapper:
+                self.phenotype_mapper.annotate(result)
             results.append(result)
         return results
 

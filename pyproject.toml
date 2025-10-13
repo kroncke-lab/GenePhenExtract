@@ -24,6 +24,11 @@ genephenextract = "genephenextract.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+genephenextract = [
+    "schema/*.json",
+]
+
 [tool.black]
 line-length = 100
 
