@@ -23,6 +23,13 @@ It leverages large language models through schema-guided extraction (via [LangEx
 pip install -e .
 ```
 
+This will install the `genephenextract` command-line entry point onto your PATH. If you prefer
+not to install the package, you can still run the tool in-place with:
+
+```bash
+python -m genephenextract --query "KCNH2" --mock
+```
+
 To use the LangExtract-backed extractor you will also need to install the optional dependency:
 
 ```bash
@@ -47,6 +54,14 @@ You can also process specific PMIDs:
 genephenextract --pmids 12345678 98765432 --mock --output results.json
 ```
 
+To disable HPO post-processing or provide a custom ontology mapping file:
+
+```bash
+genephenextract --query "KCNH2" --mock --no-hpo
+# or
+genephenextract --query "KCNH2" --mock --hpo-map /path/to/custom_hpo.json
+```
+
 ### Python API
 
 ```python
@@ -65,15 +80,24 @@ for record in results:
 
 - `genephenextract.pubmed`: lightweight client for PubMed E-utilities
 - `genephenextract.extraction`: interfaces for LangExtract integration and local mock extractor
+- `genephenextract.hpo`: utilities for mapping phenotypes to HPO identifiers
 - `genephenextract.pipeline`: orchestration logic that ties retrieval and extraction together
 - `examples/`: placeholder for sample schemas and configuration files
 - `tests/`: pytest-based unit tests covering data models and pipeline behavior
 
+### Testing
+
+Run the automated test suite with:
+
+```bash
+pytest
+```
+
 ### Roadmap
 
-- [ ] PubMed retrieval
-- [ ] LLM-based structured extraction
-- [ ] Phenotype ontology mapping (HPO integration)
+- [x] PubMed retrieval
+- [x] LLM-based structured extraction
+- [x] Phenotype ontology mapping (HPO integration)
 - [ ] Batch processing and caching
 - [ ] Streamlit demo app
 

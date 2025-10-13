@@ -23,3 +23,5 @@ def test_extraction_result_defaults():
     )
     assert result.pmid == "123456"
     assert isinstance(result.extracted_at, datetime)
+    payload = result.to_dict()
+    assert "title" in payload
