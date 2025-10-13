@@ -66,6 +66,10 @@ def _result_from_payload(payload: Dict[str, Any], *, pmid: str) -> ExtractionRes
         "sex": payload.get("sex"),
         "treatment": payload.get("treatment"),
         "outcome": payload.get("outcome"),
+        "title": payload.get("title"),
+        "journal": payload.get("journal"),
+        "publication_date": payload.get("publication_date"),
+        "abstract": payload.get("abstract"),
     }
 
     phenotypes: Iterable[Dict[str, Any]] = payload.get("phenotypes", [])
