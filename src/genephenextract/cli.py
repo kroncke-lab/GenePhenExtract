@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .extraction import LangExtractExtractor, MockExtractor
+from .extraction import DEFAULT_GEMINI_MODEL, GeminiExtractor, MockExtractor
 from .hpo import PhenotypeOntologyMapper
 from .models import PipelineInput
 from .pipeline import ExtractionPipeline
@@ -25,7 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-results", type=int, default=5, help="Maximum results to fetch for a query")
     parser.add_argument("--schema", type=Path, default=None, help="Path to a LangExtract schema JSON file")
     parser.add_argument("--api-key", help="API key for LangExtract or the backing LLM provider")
-    parser.add_argument("--model", default="gemini-1.5-pro", help="LLM model identifier to use")
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_GEMINI_MODEL,
+        help=(
+            "LLM model identifier to use (defaults to %(default)s). "
+            "Common options: gemini-pro, gemini-1.5-pro, gemini-1.5-flash. "
+            "Can also be set via the GENEPHENEXTRACT_GEMINI_MODEL environment variable."
+        ),
+    )
     parser.add_argument(
         "--mock",
         action="store_true",
@@ -68,11 +76,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     return 0
 
 
-def _build_extractor(args: argparse.Namespace) -> MockExtractor | LangExtractExtractor:
+def _build_extractor(args: argparse.Namespace) -> MockExtractor | GeminiExtractor:
     """Instantiate the appropriate extractor implementation."""
     if args.mock:
         return MockExtractor()
-    return LangExtractExtractor(api_key=args.api_key, model=args.model)
+    return GeminiExtractor(api_key=args.api_key, model=args.model)
 
 
 def _build_phenotype_mapper(args: argparse.Namespace) -> PhenotypeOntologyMapper | None:

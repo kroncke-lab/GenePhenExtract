@@ -31,6 +31,30 @@ class BaseExtractor:
         raise NotImplementedError
 
 
+def _canonicalize_model_name(model: str) -> str:
+    """Return a Gemini model identifier acceptable to the google-generativeai library."""
+
+    if not model:
+        raise ValueError("Gemini model name must be a non-empty string")
+
+    # For google-generativeai, we want just the model name without prefixes
+    # Strip any existing prefixes to normalize
+    if model.startswith("models/"):
+        return model.replace("models/", "")
+    if model.startswith("tunedModels/"):
+        return model.replace("tunedModels/", "")
+    
+    # Return the bare model name
+    return model
+
+
+# Allow deployments to override the Gemini model at import time via an
+# environment variable. This accommodates accounts that do not yet have access
+# to the newest Gemini releases. The extractor will canonicalize the identifier
+# for API usage, so the environment variable may contain either the bare Gemini
+# name (e.g., ``gemini-1.5-flash``) or the fully qualified value (e.g.,
+# ``models/gemini-1.5-flash``).
+DEFAULT_GEMINI_MODEL = os.getenv("GENEPHENEXTRACT_GEMINI_MODEL", "gemini-pro") or "gemini-pro"
 DEFAULT_GEMINI_MODEL = "gemini-1.5-pro-latest"
 GEMINI_MODEL_ENV_VAR = "GENEPHENEXTRACT_GEMINI_MODEL"
 GEMINI_MODEL_PREFERENCE: Sequence[str] = (
@@ -174,7 +198,24 @@ class GeminiExtractor(BaseExtractor):
             raise ExtractorError(f"Failed to parse extraction result: {e}") from e
         except Exception as e:
             logger.error("Gemini API error: %s", e)
-            raise ExtractorError(f"Gemini extraction failed: {e}") from e
+            hints = []
+            if self.requested_model:
+                hints.append(
+                    "The model '%s' may not be available to your account." % self.requested_model
+                )
+                hints.append(
+                    "Set the GENEPHENEXTRACT_GEMINI_MODEL environment variable or pass --model to the CLI with a supported identifier."
+                )
+                if self.requested_model != self.model_name:
+                    hints.append(
+                        "Gemini expects fully qualified identifiers such as '%s'."
+                        % self.model_name
+                    )
+
+            message = f"Gemini extraction failed: {e}"
+            if hints:
+                message = f"{message}. {' '.join(hints)}"
+            raise ExtractorError(message) from e
         
         return _result_from_payload(result_data, pmid=pmid)
 

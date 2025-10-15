@@ -473,6 +473,179 @@ def _extract_section_text(section: ET.Element) -> str:
     return "\n\n".join(parts) if parts else ""
 
 
+def _gather_supplementary_texts(
+    xml_root: ET.Element, pmcid: str, *, timeout: float
+) -> List[str]:
+    """Collect text from supplementary materials referenced in the PMC XML."""
+
+    supplementary_sections: List[str] = []
+    supplementary_elements = xml_root.findall(".//supplementary-material")
+    if not supplementary_elements:
+        return supplementary_sections
+
+    logger.info("Found %d supplementary materials for %s", len(supplementary_elements), pmcid)
+
+    for index, element in enumerate(supplementary_elements, start=1):
+        label = _supplementary_label(element, index)
+        hrefs = _supplementary_hrefs(element)
+        if not hrefs:
+            inline_text = _extract_text_from_element(element).strip()
+            if inline_text:
+                supplementary_sections.append(f"### {label}\n{inline_text}")
+            else:
+                logger.debug(
+                    "Supplementary material %s for %s has no associated media", label, pmcid
+                )
+            continue
+
+        for href in hrefs:
+            text = _download_supplementary_text(pmcid, href, label, timeout)
+            if text:
+                supplementary_sections.append(f"### {label}\n{text.strip()}")
+                break
+        else:
+            logger.warning("Failed to process supplementary material %s for %s", label, pmcid)
+
+    return supplementary_sections
+
+
+def _supplementary_label(element: ET.Element, index: int) -> str:
+    for tag in ("label", "title"):
+        tag_element = element.find(tag)
+        if tag_element is not None and tag_element.text:
+            label = tag_element.text.strip()
+            if label:
+                return label
+    for attr in ("id", "label"):
+        value = element.get(attr)
+        if value:
+            return value
+    return f"Supplementary Material {index}"
+
+
+def _supplementary_hrefs(element: ET.Element) -> List[str]:
+    hrefs: List[str] = []
+    xlink_href = "{http://www.w3.org/1999/xlink}href"
+
+    direct_href = element.get(xlink_href) or element.get("href")
+    if direct_href:
+        hrefs.append(direct_href.strip())
+
+    for media in element.findall(".//{*}media"):
+        href = media.get(xlink_href) or media.get("href")
+        if href:
+            hrefs.append(href.strip())
+
+    for ext_link in element.findall(".//{*}ext-link"):
+        href = ext_link.get(xlink_href) or ext_link.get("href")
+        if href:
+            hrefs.append(href.strip())
+
+    # Preserve order but remove duplicates
+    seen = set()
+    unique_hrefs = []
+    for href in hrefs:
+        if href and href not in seen:
+            unique_hrefs.append(href)
+            seen.add(href)
+    return unique_hrefs
+
+
+def _download_supplementary_text(
+    pmcid: str, href: str, label: str, timeout: float
+) -> Optional[str]:
+    """Download and extract text from a supplementary file."""
+
+    url_candidates = _candidate_supplementary_urls(pmcid, href)
+    for url in url_candidates:
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                data = response.read()
+                content_type = response.headers.get("Content-Type", "")
+        except Exception as exc:  # pragma: no cover - network failures
+            logger.debug(
+                "Unable to download supplementary material %s from %s: %s", label, url, exc
+            )
+            continue
+
+        text = _extract_supplementary_text(href, data, content_type)
+        if text:
+            logger.info("Processed supplementary file %s for %s", url, pmcid)
+            return text
+
+    return None
+
+
+def _candidate_supplementary_urls(pmcid: str, href: str) -> List[str]:
+    parsed = urllib.parse.urlparse(href)
+    if parsed.scheme in {"http", "https"}:
+        return [href]
+
+    clean_path = href.lstrip("/")
+    base_article = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+    base_pdf = urllib.parse.urljoin(base_article, "pdf/")
+    base_ftp = f"https://ftp.ncbi.nlm.nih.gov/pub/pmc/articles/{pmcid}/"
+
+    candidates = [
+        urllib.parse.urljoin(base_article, clean_path),
+        urllib.parse.urljoin(base_pdf, clean_path),
+        urllib.parse.urljoin(base_ftp, clean_path),
+    ]
+
+    seen = set()
+    ordered_candidates = []
+    for candidate in candidates:
+        if candidate not in seen:
+            ordered_candidates.append(candidate)
+            seen.add(candidate)
+    return ordered_candidates
+
+
+def _extract_supplementary_text(href: str, data: bytes, content_type: str) -> Optional[str]:
+    """Extract textual content from a supplementary file payload."""
+
+    path = urllib.parse.urlparse(href).path
+    _, ext = os.path.splitext(path.lower())
+
+    if ext == ".docx" or "application/vnd.openxmlformats-officedocument" in content_type:
+        try:
+            from docx import Document  # type: ignore
+        except ImportError:  # pragma: no cover - optional dependency
+            logger.warning("python-docx is required to read DOCX supplementary files")
+            return None
+
+        document = Document(io.BytesIO(data))
+        paragraphs = [para.text.strip() for para in document.paragraphs if para.text and para.text.strip()]
+        return "\n".join(paragraphs)
+
+    if ext == ".pdf" or content_type.startswith("application/pdf"):
+        try:
+            from pypdf import PdfReader  # type: ignore
+        except ImportError:  # pragma: no cover - optional dependency
+            logger.warning("pypdf is required to read PDF supplementary files")
+            return None
+
+        reader = PdfReader(io.BytesIO(data))
+        pages = []
+        for page in reader.pages:
+            try:
+                page_text = page.extract_text() or ""
+            except Exception:  # pragma: no cover - defensive for malformed PDFs
+                page_text = ""
+            if page_text.strip():
+                pages.append(page_text.strip())
+        return "\n\n".join(pages) if pages else None
+
+    if ext in {".txt", ".csv"} or content_type.startswith("text/"):
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return data.decode("latin-1", errors="ignore")
+
+    return None
+
+
 def _parse_publication_date(article: ET.Element) -> Optional[str]:
     pub_date = article.find(".//Journal/JournalIssue/PubDate")
     if pub_date is None:
