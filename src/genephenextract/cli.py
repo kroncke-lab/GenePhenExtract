@@ -28,7 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         default=DEFAULT_GEMINI_MODEL,
-        help="LLM model identifier to use",
+        help=(
+            "LLM model identifier to use (defaults to %(default)s). "
+            "Can also be set via the GENEPHENEXTRACT_GEMINI_MODEL environment variable."
+        ),
     )
     parser.add_argument(
         "--mock",

@@ -48,6 +48,10 @@ The `--mock` flag runs the built-in mock extractor, which produces deterministic
 genephenextract --query "KCNH2" --api-key $LANGEXTRACT_API_KEY --schema examples/schema.json
 ```
 
+The CLI defaults to the `gemini-pro` model identifier. If your account requires a
+different model, set the `GENEPHENEXTRACT_GEMINI_MODEL` environment variable or
+pass `--model your-model-name` on the command line.
+
 You can also process specific PMIDs:
 
 ```bash

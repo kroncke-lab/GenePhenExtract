@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -30,7 +31,10 @@ class BaseExtractor:
         raise NotImplementedError
 
 
-DEFAULT_GEMINI_MODEL = "gemini-1.5-pro-latest"
+# Allow deployments to override the Gemini model at import time via an
+# environment variable. This accommodates accounts that do not yet have access
+# to the newest Gemini releases.
+DEFAULT_GEMINI_MODEL = os.getenv("GENEPHENEXTRACT_GEMINI_MODEL", "gemini-pro")
 
 
 class GeminiExtractor(BaseExtractor):
@@ -76,7 +80,14 @@ class GeminiExtractor(BaseExtractor):
             raise ExtractorError(f"Failed to parse extraction result: {e}") from e
         except Exception as e:
             logger.error("Gemini API error: %s", e)
-            raise ExtractorError(f"Gemini extraction failed: {e}") from e
+            hint = ""
+            if self.model_name:
+                hint = (
+                    " The model '%s' may not be available to your account. "
+                    "Set the GENEPHENEXTRACT_GEMINI_MODEL environment variable or pass "
+                    "--model to the CLI with a supported identifier."
+                ) % self.model_name
+            raise ExtractorError(f"Gemini extraction failed: {e}.{hint}") from e
         
         return _result_from_payload(result_data, pmid=pmid)
 
