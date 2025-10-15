@@ -36,6 +36,28 @@ To use the LangExtract-backed extractor you will also need to install the option
 pip install -e .[langextract]
 ```
 
+#### Configuring Gemini model selection
+
+When using the direct Gemini integration you may need to target a model version that is available to your
+Google AI Studio project. GenePhenExtract defaults to `gemini-1.5-pro-latest`, but will automatically fall back to
+the best model your API key can access if that default is unavailable. You can override the model in two ways:
+
+1. Pass the `model` argument when instantiating `GeminiExtractor` in Python code.
+2. Set the `GENEPHENEXTRACT_GEMINI_MODEL` environment variable when using the CLI or test script.
+
+If a specific model is unavailable (for example when forcing a value via the environment variable), the extractor
+raises a clear error that includes the models your API key is authorised to use. You can also visit Google AI Studio
+to manage model access.
+
+#### Supplementary material ingestion
+
+Many case reports place key cohort details (e.g., index patients, QTc measurements, or pedigree tables) in
+supplementary files instead of the article body. When a PMC article links DOCX, TXT, CSV, TSV, or XML
+supplementary assets, GenePhenExtract now downloads those files and appends their text to the full-text payload
+handed to the extractor. This makes it easier for downstream LLMs to surface details that only appear in
+supplementary appendices. Files in unsupported formats (such as PDF) are skipped gracefully, so you can still
+download them manually if needed.
+
 ### Command-line usage
 
 ```bash

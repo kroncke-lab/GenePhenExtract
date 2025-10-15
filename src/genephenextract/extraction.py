@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 try:  # pragma: no cover - optional dependency
     import google.generativeai as genai
@@ -30,21 +31,121 @@ class BaseExtractor:
         raise NotImplementedError
 
 
+DEFAULT_GEMINI_MODEL = "gemini-1.5-pro-latest"
+GEMINI_MODEL_ENV_VAR = "GENEPHENEXTRACT_GEMINI_MODEL"
+GEMINI_MODEL_PREFERENCE: Sequence[str] = (
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-pro",
+    "gemini-1.0-pro-latest",
+    "gemini-1.0-pro",
+    "gemini-pro",
+    "gemini-1.0-pro-001",
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
+)
+
+
+def _resolve_model_name(model: Optional[str]) -> str:
+    """Return the Gemini model name to use for extraction."""
+
+    if model:
+        return model
+
+    env_model = os.getenv(GEMINI_MODEL_ENV_VAR)
+    if env_model:
+        return env_model
+
+    return DEFAULT_GEMINI_MODEL
+
+
+def _normalise_model_name(model_name: str) -> str:
+    """Return the canonical Gemini model identifier without API prefixes."""
+
+    return model_name.split("/")[-1]
+
+
+def _list_available_models() -> List[str]:
+    """Return Gemini model identifiers that support generateContent.
+
+    Returns an empty list if the SDK is unavailable or the API call fails.
+    """
+
+    if genai is None:  # pragma: no cover - optional dependency
+        return []
+
+    try:  # pragma: no cover - network/API dependent
+        models = genai.list_models()
+    except Exception:  # pragma: no cover - network/API dependent
+        logger.debug("Unable to list Gemini models", exc_info=True)
+        return []
+
+    available: List[str] = []
+    for model in models:
+        supported = getattr(model, "supported_generation_methods", [])
+        if "generateContent" in supported:
+            available.append(_normalise_model_name(getattr(model, "name", "")))
+
+    return sorted(set(filter(None, available)))
+
+
+def _select_preferred_model(available_models: Sequence[str]) -> Optional[str]:
+    """Return the best available model according to preference ordering."""
+
+    available_set = set(available_models)
+    for preferred in GEMINI_MODEL_PREFERENCE:
+        if preferred in available_set:
+            return preferred
+
+    return available_models[0] if available_models else None
+
+
 class GeminiExtractor(BaseExtractor):
     """Implementation that uses Google's Gemini API directly for extraction."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-pro") -> None:
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
         if genai is None:  # pragma: no cover - optional dependency
             msg = "google-generativeai is not installed. Install it with `pip install google-generativeai`."
             raise ImportError(msg)
-        
+
         if not api_key:
             msg = "API key is required for GeminiExtractor"
             raise ValueError(msg)
-        
+
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model)
-        self.model_name = model
+        self.model_name = _resolve_model_name(model)
+        env_model = os.getenv(GEMINI_MODEL_ENV_VAR)
+        model_source = "argument" if model else ("environment" if env_model else "default")
+
+        available_models = _list_available_models()
+        if available_models and self.model_name not in available_models:
+            if model_source in {"argument", "environment"}:
+                msg = (
+                    f"Gemini model '{self.model_name}' is not available for your API key. "
+                    f"Available models: {', '.join(available_models)}"
+                )
+                raise ExtractorError(msg)
+
+            fallback = _select_preferred_model(available_models)
+            if fallback is None:
+                msg = (
+                    "No Gemini models supporting generateContent are available to your API key. "
+                    "Verify the key has access to at least one generative model."
+                )
+                raise ExtractorError(msg)
+
+            logger.warning(
+                "Default Gemini model '%s' unavailable; falling back to '%s'", self.model_name, fallback
+            )
+            self.model_name = fallback
+
+        try:
+            self.model = genai.GenerativeModel(self.model_name)
+        except Exception as exc:  # pragma: no cover - network/API dependent
+            msg = (
+                f"Failed to initialise Gemini model '{self.model_name}'. "
+                f"Set {GEMINI_MODEL_ENV_VAR} or pass model='<model-name>' to GeminiExtractor."
+            )
+            raise ExtractorError(msg) from exc
 
     def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
         schema = _load_schema(schema_path)
