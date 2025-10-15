@@ -30,10 +30,13 @@ class BaseExtractor:
         raise NotImplementedError
 
 
+DEFAULT_GEMINI_MODEL = "gemini-1.5-pro-latest"
+
+
 class GeminiExtractor(BaseExtractor):
     """Implementation that uses Google's Gemini API directly for extraction."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-pro") -> None:
+    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_GEMINI_MODEL) -> None:
         if genai is None:  # pragma: no cover - optional dependency
             msg = "google-generativeai is not installed. Install it with `pip install google-generativeai`."
             raise ImportError(msg)
