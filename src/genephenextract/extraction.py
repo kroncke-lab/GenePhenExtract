@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -30,21 +31,46 @@ class BaseExtractor:
         raise NotImplementedError
 
 
+DEFAULT_GEMINI_MODEL = "gemini-1.5-pro-latest"
+GEMINI_MODEL_ENV_VAR = "GENEPHENEXTRACT_GEMINI_MODEL"
+
+
+def _resolve_model_name(model: Optional[str]) -> str:
+    """Return the Gemini model name to use for extraction."""
+
+    if model:
+        return model
+
+    env_model = os.getenv(GEMINI_MODEL_ENV_VAR)
+    if env_model:
+        return env_model
+
+    return DEFAULT_GEMINI_MODEL
+
+
 class GeminiExtractor(BaseExtractor):
     """Implementation that uses Google's Gemini API directly for extraction."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-pro") -> None:
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
         if genai is None:  # pragma: no cover - optional dependency
             msg = "google-generativeai is not installed. Install it with `pip install google-generativeai`."
             raise ImportError(msg)
-        
+
         if not api_key:
             msg = "API key is required for GeminiExtractor"
             raise ValueError(msg)
-        
+
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model)
-        self.model_name = model
+        self.model_name = _resolve_model_name(model)
+
+        try:
+            self.model = genai.GenerativeModel(self.model_name)
+        except Exception as exc:  # pragma: no cover - network/API dependent
+            msg = (
+                f"Failed to initialise Gemini model '{self.model_name}'. "
+                f"Set {GEMINI_MODEL_ENV_VAR} or pass model='<model-name>' to GeminiExtractor."
+            )
+            raise ExtractorError(msg) from exc
 
     def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
         schema = _load_schema(schema_path)
