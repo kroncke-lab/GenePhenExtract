@@ -50,7 +50,9 @@ genephenextract --query "KCNH2" --api-key $LANGEXTRACT_API_KEY --schema examples
 
 The CLI defaults to the `gemini-pro` model identifier. If your account requires a
 different model, set the `GENEPHENEXTRACT_GEMINI_MODEL` environment variable or
-pass `--model your-model-name` on the command line.
+pass `--model your-model-name` on the command line. Bare Gemini names are
+automatically expanded to the fully qualified `models/...` identifiers expected
+by the public API, so both `gemini-pro` and `models/gemini-pro` are accepted.
 
 You can also process specific PMIDs:
 

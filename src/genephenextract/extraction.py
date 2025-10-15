@@ -31,10 +31,24 @@ class BaseExtractor:
         raise NotImplementedError
 
 
+def _canonicalize_model_name(model: str) -> str:
+    """Return a Gemini model identifier acceptable to the public API."""
+
+    if not model:
+        raise ValueError("Gemini model name must be a non-empty string")
+
+    if model.startswith(("models/", "tunedModels/")):
+        return model
+    return f"models/{model}"
+
+
 # Allow deployments to override the Gemini model at import time via an
 # environment variable. This accommodates accounts that do not yet have access
-# to the newest Gemini releases.
-DEFAULT_GEMINI_MODEL = os.getenv("GENEPHENEXTRACT_GEMINI_MODEL", "gemini-pro")
+# to the newest Gemini releases. The extractor will canonicalize the identifier
+# for API usage, so the environment variable may contain either the bare Gemini
+# name (e.g., ``gemini-pro``) or the fully qualified value (e.g.,
+# ``models/gemini-pro``).
+DEFAULT_GEMINI_MODEL = os.getenv("GENEPHENEXTRACT_GEMINI_MODEL", "gemini-pro") or "gemini-pro"
 
 
 class GeminiExtractor(BaseExtractor):
@@ -44,14 +58,15 @@ class GeminiExtractor(BaseExtractor):
         if genai is None:  # pragma: no cover - optional dependency
             msg = "google-generativeai is not installed. Install it with `pip install google-generativeai`."
             raise ImportError(msg)
-        
+
         if not api_key:
             msg = "API key is required for GeminiExtractor"
             raise ValueError(msg)
-        
+
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model)
-        self.model_name = model
+        self.requested_model = model
+        self.model_name = _canonicalize_model_name(model)
+        self.model = genai.GenerativeModel(self.model_name)
 
     def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
         schema = _load_schema(schema_path)
@@ -80,14 +95,24 @@ class GeminiExtractor(BaseExtractor):
             raise ExtractorError(f"Failed to parse extraction result: {e}") from e
         except Exception as e:
             logger.error("Gemini API error: %s", e)
-            hint = ""
-            if self.model_name:
-                hint = (
-                    " The model '%s' may not be available to your account. "
-                    "Set the GENEPHENEXTRACT_GEMINI_MODEL environment variable or pass "
-                    "--model to the CLI with a supported identifier."
-                ) % self.model_name
-            raise ExtractorError(f"Gemini extraction failed: {e}.{hint}") from e
+            hints = []
+            if self.requested_model:
+                hints.append(
+                    "The model '%s' may not be available to your account." % self.requested_model
+                )
+                hints.append(
+                    "Set the GENEPHENEXTRACT_GEMINI_MODEL environment variable or pass --model to the CLI with a supported identifier."
+                )
+                if self.requested_model != self.model_name:
+                    hints.append(
+                        "Gemini expects fully qualified identifiers such as '%s'."
+                        % self.model_name
+                    )
+
+            message = f"Gemini extraction failed: {e}"
+            if hints:
+                message = f"{message}. {' '.join(hints)}"
+            raise ExtractorError(message) from e
         
         return _result_from_payload(result_data, pmid=pmid)
 

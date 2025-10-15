@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_GEMINI_MODEL,
         help=(
             "LLM model identifier to use (defaults to %(default)s). "
+            "Bare Gemini names will automatically be expanded to their 'models/' equivalents. "
             "Can also be set via the GENEPHENEXTRACT_GEMINI_MODEL environment variable."
         ),
     )
