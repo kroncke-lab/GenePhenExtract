@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import calendar
+import io
 import json
 import logging
-import calendar
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from typing import Dict, Iterable, List, Optional, Tuple
+import zipfile
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+PMC_ARTICLE_BASE = "https://pmc.ncbi.nlm.nih.gov/articles"
 USER_AGENT = "GenePhenExtract/0.1 (+https://github.com/brettkroncke/GenePhenExtract)"
+XLINK_HREF = "{http://www.w3.org/1999/xlink}href"
 
 
 class PubMedError(RuntimeError):
@@ -222,9 +226,9 @@ class PubMedClient:
         except ET.ParseError as exc:
             logger.warning("Unable to parse PMC XML for %s: %s", pmcid, exc)
             return None
-        
+
         # Extract text from various sections
-        text_parts = []
+        text_parts: List[str] = []
         
         # Title
         title = xml_root.find(".//article-title")
@@ -246,10 +250,13 @@ class PubMedClient:
                 if section_text:
                     text_parts.append(section_text)
         
+        supplementary_sections = _extract_supplementary_sections(xml_root, pmcid)
+        text_parts.extend(supplementary_sections)
+
         if not text_parts:
             logger.warning("No text content found in PMC XML for %s", pmcid)
             return None
-        
+
         full_text = "\n\n".join(text_parts)
         logger.info("Successfully retrieved full-text for %s (%d characters)", pmcid, len(full_text))
         return full_text
@@ -289,6 +296,147 @@ def _find_text(node: ET.Element, path: str) -> Optional[str]:
     if element is None or element.text is None:
         return None
     return element.text.strip() or None
+
+
+def _extract_supplementary_sections(xml_root: ET.Element, pmcid: str) -> List[str]:
+    sections: List[str] = []
+    for index, material in enumerate(xml_root.findall(".//supplementary-material")):
+        section_text = _supplementary_material_to_text(material, pmcid, index)
+        if section_text:
+            sections.append(section_text)
+    return sections
+
+
+def _supplementary_material_to_text(
+    material: ET.Element, pmcid: str, index: int
+) -> Optional[str]:
+    label_candidates: Sequence[Optional[str]] = (
+        _find_text(material, "label"),
+        material.get("id"),
+        material.get("title"),
+        material.get("{http://www.w3.org/1999/xlink}title"),
+    )
+    label = next((value for value in label_candidates if value), None)
+    if not label:
+        label = f"Supplementary material {index + 1}"
+
+    body_parts: List[str] = []
+
+    caption = material.find("caption")
+    if caption is not None:
+        caption_text = _extract_text_from_element(caption).strip()
+        if caption_text:
+            body_parts.append(caption_text)
+
+    href = material.get(XLINK_HREF)
+    if href:
+        text = _fetch_supplementary_text(href, pmcid)
+        if text:
+            body_parts.append(text.strip())
+        else:
+            logger.debug(
+                "Unable to extract supplementary material %s for %s", href, pmcid
+            )
+    else:
+        inline_text = _extract_text_from_element(material).strip()
+        if inline_text:
+            body_parts.append(inline_text)
+
+    if not body_parts:
+        return None
+
+    heading = f"## Supplementary: {label.strip()}"
+    return "\n\n".join([heading, "\n\n".join(body_parts).strip()])
+
+
+def _fetch_supplementary_text(href: str, pmcid: str) -> Optional[str]:
+    urls = _supplementary_urls(href, pmcid)
+    last_error: Optional[Exception] = None
+    for url in urls:
+        try:
+            content = _download_binary(url)
+        except PubMedError as exc:
+            last_error = exc
+            logger.debug("Failed to download supplementary file %s: %s", url, exc)
+            continue
+        text = _decode_supplementary_bytes(href, content)
+        if text:
+            return text
+    if last_error:
+        logger.info(
+            "Supplementary material %s for %s could not be retrieved", href, pmcid
+        )
+    return None
+
+
+def _supplementary_urls(href: str, pmcid: str) -> Sequence[str]:
+    clean_pmcid = pmcid if pmcid.startswith("PMC") else f"PMC{pmcid}"
+    base_article_url = f"{PMC_ARTICLE_BASE}/{clean_pmcid}/"
+    candidates = [
+        urllib.parse.urljoin(base_article_url, href),
+        urllib.parse.urljoin("https://pmc.ncbi.nlm.nih.gov/", href),
+    ]
+    # Preserve order while removing duplicates
+    seen = set()
+    unique: List[str] = []
+    for url in candidates:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
+def _download_binary(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
+    except urllib.error.URLError as exc:  # pragma: no cover - network dependent
+        raise PubMedError(f"Failed to download supplementary file from {url}") from exc
+
+
+def _decode_supplementary_bytes(href: str, content: bytes) -> Optional[str]:
+    suffix = href.split("?")[0].lower()
+    if suffix.endswith(".docx"):
+        try:
+            return _extract_docx_text(content)
+        except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+            logger.debug("Unable to parse DOCX supplementary file %s: %s", href, exc)
+            return None
+    if suffix.endswith((".txt", ".csv", ".tsv")):
+        return content.decode("utf-8", errors="replace")
+    if suffix.endswith(".xml"):
+        return _extract_xml_text(content)
+    return None
+
+
+def _extract_xml_text(content: bytes) -> Optional[str]:
+    try:
+        xml_root = ET.fromstring(content)
+    except ET.ParseError:
+        text = content.decode("utf-8", errors="replace").strip()
+        return text or None
+    text = _extract_text_from_element(xml_root).strip()
+    return text or None
+
+
+def _extract_docx_text(content: bytes) -> Optional[str]:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        try:
+            with archive.open("word/document.xml") as document:
+                document_xml = document.read()
+        except KeyError as exc:
+            raise KeyError("DOCX file missing document.xml") from exc
+
+    root = ET.fromstring(document_xml)
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    paragraphs: List[str] = []
+    for para in root.findall(".//w:p", namespace):
+        runs = [text.text or "" for text in para.findall(".//w:t", namespace) if text.text]
+        paragraph = "".join(runs).strip()
+        if paragraph:
+            paragraphs.append(paragraph)
+    return "\n".join(paragraphs) if paragraphs else None
 
 
 def _extract_text_from_element(element: ET.Element) -> str:

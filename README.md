@@ -49,6 +49,15 @@ If a specific model is unavailable (for example when forcing a value via the env
 raises a clear error that includes the models your API key is authorised to use. You can also visit Google AI Studio
 to manage model access.
 
+#### Supplementary material ingestion
+
+Many case reports place key cohort details (e.g., index patients, QTc measurements, or pedigree tables) in
+supplementary files instead of the article body. When a PMC article links DOCX, TXT, CSV, TSV, or XML
+supplementary assets, GenePhenExtract now downloads those files and appends their text to the full-text payload
+handed to the extractor. This makes it easier for downstream LLMs to surface details that only appear in
+supplementary appendices. Files in unsupported formats (such as PDF) are skipped gracefully, so you can still
+download them manually if needed.
+
 ### Command-line usage
 
 ```bash
