@@ -32,22 +32,28 @@ class BaseExtractor:
 
 
 def _canonicalize_model_name(model: str) -> str:
-    """Return a Gemini model identifier acceptable to the public API."""
+    """Return a Gemini model identifier acceptable to the google-generativeai library."""
 
     if not model:
         raise ValueError("Gemini model name must be a non-empty string")
 
-    if model.startswith(("models/", "tunedModels/")):
-        return model
-    return f"models/{model}"
+    # For google-generativeai, we want just the model name without prefixes
+    # Strip any existing prefixes to normalize
+    if model.startswith("models/"):
+        return model.replace("models/", "")
+    if model.startswith("tunedModels/"):
+        return model.replace("tunedModels/", "")
+    
+    # Return the bare model name
+    return model
 
 
 # Allow deployments to override the Gemini model at import time via an
 # environment variable. This accommodates accounts that do not yet have access
 # to the newest Gemini releases. The extractor will canonicalize the identifier
 # for API usage, so the environment variable may contain either the bare Gemini
-# name (e.g., ``gemini-pro``) or the fully qualified value (e.g.,
-# ``models/gemini-pro``).
+# name (e.g., ``gemini-1.5-flash``) or the fully qualified value (e.g.,
+# ``models/gemini-1.5-flash``).
 DEFAULT_GEMINI_MODEL = os.getenv("GENEPHENEXTRACT_GEMINI_MODEL", "gemini-pro") or "gemini-pro"
 
 
@@ -66,7 +72,34 @@ class GeminiExtractor(BaseExtractor):
         genai.configure(api_key=api_key)
         self.requested_model = model
         self.model_name = _canonicalize_model_name(model)
-        self.model = genai.GenerativeModel(self.model_name)
+        
+        # Try to list available models to validate
+        try:
+            available_models = [m.name for m in genai.list_models()]
+            logger.debug("Available models: %s", available_models)
+            
+            # Check if our model is available (with or without prefix)
+            model_found = any(
+                self.model_name in m or m.endswith('/' + self.model_name)
+                for m in available_models
+            )
+            
+            if not model_found:
+                logger.warning(
+                    "Model '%s' not found in available models. "
+                    "Available models: %s. Attempting to use it anyway.",
+                    self.model_name,
+                    [m.split('/')[-1] for m in available_models]
+                )
+        except Exception as e:
+            logger.warning("Could not list available models: %s", e)
+        
+        # Use the canonicalized name directly (without models/ prefix for google-generativeai)
+        try:
+            self.model = genai.GenerativeModel(self.model_name)
+        except Exception as e:
+            logger.error("Failed to initialize model '%s': %s", self.model_name, e)
+            raise
 
     def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
         schema = _load_schema(schema_path)

@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .extraction import DEFAULT_GEMINI_MODEL, LangExtractExtractor, MockExtractor
+from .extraction import DEFAULT_GEMINI_MODEL, GeminiExtractor, MockExtractor
 from .hpo import PhenotypeOntologyMapper
 from .models import PipelineInput
 from .pipeline import ExtractionPipeline
@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_GEMINI_MODEL,
         help=(
             "LLM model identifier to use (defaults to %(default)s). "
-            "Bare Gemini names will automatically be expanded to their 'models/' equivalents. "
+            "Common options: gemini-pro, gemini-1.5-pro, gemini-1.5-flash. "
             "Can also be set via the GENEPHENEXTRACT_GEMINI_MODEL environment variable."
         ),
     )
@@ -76,11 +76,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     return 0
 
 
-def _build_extractor(args: argparse.Namespace) -> MockExtractor | LangExtractExtractor:
+def _build_extractor(args: argparse.Namespace) -> MockExtractor | GeminiExtractor:
     """Instantiate the appropriate extractor implementation."""
     if args.mock:
         return MockExtractor()
-    return LangExtractExtractor(api_key=args.api_key, model=args.model)
+    return GeminiExtractor(api_key=args.api_key, model=args.model)
 
 
 def _build_phenotype_mapper(args: argparse.Namespace) -> PhenotypeOntologyMapper | None:
