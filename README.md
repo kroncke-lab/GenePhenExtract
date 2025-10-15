@@ -39,14 +39,15 @@ pip install -e .[langextract]
 #### Configuring Gemini model selection
 
 When using the direct Gemini integration you may need to target a model version that is available to your
-Google AI Studio project. GenePhenExtract defaults to `gemini-1.5-pro-latest`, which is compatible with the
-current public API. You can override the model in two ways:
+Google AI Studio project. GenePhenExtract defaults to `gemini-1.5-pro-latest`, but will automatically fall back to
+the best model your API key can access if that default is unavailable. You can override the model in two ways:
 
 1. Pass the `model` argument when instantiating `GeminiExtractor` in Python code.
 2. Set the `GENEPHENEXTRACT_GEMINI_MODEL` environment variable when using the CLI or test script.
 
-If you encounter a "model is not found" error, list the models enabled for your account in Google AI Studio
-and update the configuration accordingly.
+If a specific model is unavailable (for example when forcing a value via the environment variable), the extractor
+raises a clear error that includes the models your API key is authorised to use. You can also visit Google AI Studio
+to manage model access.
 
 ### Command-line usage
 
