@@ -1,4 +1,4 @@
-"""Interfaces for running LangExtract-based schema-guided extraction."""
+"""Interfaces for running LLM-based schema-guided extraction."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 try:  # pragma: no cover - optional dependency
-    from langextract import LangExtract
+    import google.generativeai as genai
 except ImportError:  # pragma: no cover - optional dependency
-    LangExtract = None  # type: ignore
+    genai = None  # type: ignore
 
 from .models import ExtractionResult, PhenotypeObservation
 
@@ -30,20 +30,89 @@ class BaseExtractor:
         raise NotImplementedError
 
 
-class LangExtractExtractor(BaseExtractor):
-    """Implementation that delegates to the `langextract` Python package."""
+class GeminiExtractor(BaseExtractor):
+    """Implementation that uses Google's Gemini API directly for extraction."""
 
     def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-pro") -> None:
-        if LangExtract is None:  # pragma: no cover - optional dependency
-            msg = "langextract is not installed. Install the extra with `pip install genephenextract[langextract]`."
+        if genai is None:  # pragma: no cover - optional dependency
+            msg = "google-generativeai is not installed. Install it with `pip install google-generativeai`."
             raise ImportError(msg)
-        self.client = LangExtract(api_key=api_key, model=model)
+        
+        if not api_key:
+            msg = "API key is required for GeminiExtractor"
+            raise ValueError(msg)
+        
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel(model)
+        self.model_name = model
 
     def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
         schema = _load_schema(schema_path)
-        logger.debug("Running LangExtract with schema %s", schema_path or DEFAULT_SCHEMA)
-        response = self.client.extract(text=text, schema=schema)  # type: ignore[arg-type]
-        return _result_from_payload(response, pmid=pmid)
+        logger.debug("Running Gemini extraction with schema %s", schema_path or DEFAULT_SCHEMA)
+        
+        # Create the prompt for Gemini
+        prompt = self._create_extraction_prompt(text, schema)
+        
+        try:
+            response = self.model.generate_content(prompt)
+            result_text = response.text
+            
+            # Parse the JSON response
+            # Remove markdown code blocks if present
+            if "```json" in result_text:
+                result_text = result_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in result_text:
+                result_text = result_text.split("```")[1].split("```")[0].strip()
+            
+            result_data = json.loads(result_text)
+            logger.debug("Successfully extracted data from text")
+            
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse JSON from Gemini response: %s", e)
+            logger.debug("Response text: %s", result_text)
+            raise ExtractorError(f"Failed to parse extraction result: {e}") from e
+        except Exception as e:
+            logger.error("Gemini API error: %s", e)
+            raise ExtractorError(f"Gemini extraction failed: {e}") from e
+        
+        return _result_from_payload(result_data, pmid=pmid)
+
+    def _create_extraction_prompt(self, text: str, schema: Dict[str, Any]) -> str:
+        """Create a prompt for Gemini to extract structured data."""
+        prompt = f"""You are a medical text extraction expert. Extract structured information from the following scientific text about genetic variants and phenotypes.
+
+Extract the following information according to this JSON schema:
+{json.dumps(schema, indent=2)}
+
+Text to analyze:
+{text}
+
+Requirements:
+1. Extract the genetic variant (gene and mutation) mentioned in the text
+2. Extract all phenotypes (clinical symptoms or conditions) mentioned
+3. If mentioned, extract carrier status (heterozygous, homozygous, compound heterozygous)
+4. If mentioned, extract patient age, sex, treatment, and outcome
+5. For phenotypes, provide the phenotype name. Ontology IDs are optional.
+
+Return ONLY a valid JSON object matching the schema. Do not include any explanation or markdown formatting.
+
+Example output format:
+{{
+  "variant": "KCNH2 c.2717C>T p.(Ser906Leu)",
+  "carrier_status": "heterozygous",
+  "phenotypes": [
+    {{"name": "prolonged QT interval"}},
+    {{"name": "syncope"}}
+  ],
+  "age": 45,
+  "sex": "female",
+  "treatment": "beta-blocker",
+  "outcome": "stable"
+}}
+
+Now extract from the provided text:"""
+        
+        return prompt
 
 
 def _load_schema(schema_path: Optional[Path]) -> Dict[str, Any]:
