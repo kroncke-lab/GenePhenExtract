@@ -1,4 +1,9 @@
-from genephenextract.pubmed import PubMedClient
+import io
+import zipfile
+
+import xml.etree.ElementTree as ET
+
+from genephenextract.pubmed import PubMedClient, _decode_supplementary_bytes, _extract_docx_text
 
 SAMPLE_XML = """
 <PubmedArticleSet>
@@ -46,61 +51,55 @@ def test_fetch_details_parses_metadata():
     assert details["12345"]["abstract"] == "First sentence.\nSecond sentence."
 
 
-PMC_SUPPLEMENT_XML = """
-<article xmlns:xlink="http://www.w3.org/1999/xlink">
-  <front>
-    <article-meta>
-      <title-group>
-        <article-title>Supplement Title</article-title>
-      </title-group>
-      <abstract>
-        <p>Supplement abstract.</p>
-      </abstract>
-    </article-meta>
-  </front>
-  <body>
-    <sec>
-      <title>Introduction</title>
-      <p>Body text.</p>
-    </sec>
-  </body>
-  <back>
-    <supplementary-material id="sup1">
-      <label>Supplementary Table 1</label>
-      <media xlink:href="sup1.docx" />
-    </supplementary-material>
-  </back>
-</article>
-""".strip()
+def _build_minimal_docx(paragraphs):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>
+""",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>
+""",
+        )
+        archive.writestr(
+            "word/_rels/document.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>
+""",
+        )
+
+        ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        document = ET.Element(f"{{{ns}}}document")
+        body = ET.SubElement(document, f"{{{ns}}}body")
+        for paragraph in paragraphs:
+            p = ET.SubElement(body, f"{{{ns}}}p")
+            r = ET.SubElement(p, f"{{{ns}}}r")
+            t = ET.SubElement(r, f"{{{ns}}}t")
+            t.text = paragraph
+        document_xml = ET.tostring(document, encoding="utf-8", xml_declaration=True)
+        archive.writestr("word/document.xml", document_xml)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
-class SupplementStubPubMedClient(PubMedClient):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def _request(self, endpoint, params):  # type: ignore[override]
-        assert endpoint == "efetch.fcgi"
-        assert params["db"] == "pmc"
-        return PMC_SUPPLEMENT_XML
+def test_extract_docx_text_returns_paragraphs():
+    docx_bytes = _build_minimal_docx(["First paragraph", "Second paragraph"])
+    text = _extract_docx_text(docx_bytes)
+    assert text == "First paragraph\nSecond paragraph"
 
 
-def test_fetch_pmc_full_text_includes_supplementary(monkeypatch):
-    captured = {}
-
-    def fake_download(pmcid, href, label, timeout):  # type: ignore[override]
-        captured["called_with"] = (pmcid, href, label, timeout)
-        return "Supplemental content"
-
-    monkeypatch.setattr(
-        "genephenextract.pubmed._download_supplementary_text",
-        fake_download,
-    )
-
-    client = SupplementStubPubMedClient()
-    text = client.fetch_pmc_full_text("PMC123")
-
-    assert text is not None
-    assert "## Supplementary Materials" in text
-    assert "### Supplementary Table 1" in text
-    assert "Supplemental content" in text
-    assert captured["called_with"][1] == "sup1.docx"
+def test_decode_supplementary_bytes_supports_plain_text():
+    payload = b"Line one\nLine two"
+    text = _decode_supplementary_bytes("table.txt", payload)
+    assert "Line two" in text
