@@ -20,10 +20,10 @@ It supports multiple LLM providers with cost optimization strategies:
 
 Perfect for:
 
-- Variant curation and penetrance modeling
-- Genotype–phenotype association studies
-- Automated database population from case reports
-- Large-scale literature mining with cost optimization
+- **Penetrance studies** - Extract individual family members (affected AND unaffected carriers)
+- **Variant curation** - Build databases of genotype-phenotype associations
+- **Pedigree extraction** - Capture clinical characteristics for each individual
+- **Large-scale literature mining** - Process hundreds of papers with cost optimization
 
 ## Getting Started
 
@@ -45,9 +45,53 @@ pip install -e ".[all-llms]"
 pip install -e ".[test]"
 ```
 
-### Quick Start: Gene-Centric Workflow (Recommended)
+### Quick Start: Penetrance Extraction (THE CORE USE CASE)
 
-**🔥 Extract phenotypes for HETEROZYGOUS carriers in specific genes:**
+**🔥 Extract INDIVIDUAL family members to calculate TRUE PENETRANCE:**
+
+The primary mission is to extract **each individual family member** (both affected and unaffected carriers) from papers to calculate penetrance = affected carriers / total carriers.
+
+```python
+from genephenextract import PenetranceExtractor, ClaudeExtractor, extract_penetrance_for_gene
+
+# Extract individual-level data for a gene
+extractor = PenetranceExtractor(llm_extractor=ClaudeExtractor())
+
+# Get family studies from PubMed
+family_studies = extract_penetrance_for_gene(
+    gene="KCNH2",
+    extractor=extractor,
+    max_papers=50
+)
+
+# Build penetrance database
+from genephenextract import VariantPenetranceDatabase
+
+database = VariantPenetranceDatabase()
+for study in family_studies:
+    database.add_study(study)
+
+# Calculate TRUE penetrance (including unaffected carriers!)
+for variant, data in database.variants.items():
+    penetrance = database.calculate_overall_penetrance()
+    print(f"{variant}: {penetrance:.1%} penetrance")
+    print(f"  Affected carriers: {len(data.get_affected_carriers())}")
+    print(f"  Unaffected carriers: {len(data.get_unaffected_carriers())}")
+    print(f"  Total carriers: {len(data.get_all_carriers())}")
+```
+
+**Key features:**
+- ✅ Extracts **EACH individual** (proband, mother, father, siblings)
+- ✅ Records **affected status** (true = has phenotype, false = asymptomatic carrier)
+- ✅ Captures **clinical characteristics** (age, sex, age at onset, genotype)
+- ✅ Calculates **TRUE penetrance** across multiple studies
+- ✅ Handles heterozygous, homozygous, and compound heterozygous carriers
+
+See [examples/penetrance_workflow.py](examples/penetrance_workflow.py) for complete examples.
+
+### Alternative: Gene-Centric Workflow
+
+**Extract phenotypes for HETEROZYGOUS carriers in specific genes:**
 
 ```python
 from genephenextract import GeneCentricPipeline, ClaudeExtractor
