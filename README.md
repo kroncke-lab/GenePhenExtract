@@ -45,20 +45,40 @@ pip install -e ".[all-llms]"
 pip install -e ".[test]"
 ```
 
-### Quick Start
+### Quick Start: Gene-Centric Workflow (Recommended)
+
+**🔥 Extract phenotypes for HETEROZYGOUS carriers in specific genes:**
 
 ```python
-from genephenextract import ClaudeExtractor, ExtractionPipeline, PubMedClient, PipelineInput
+from genephenextract import GeneCentricPipeline, ClaudeExtractor
 
-# Set up extractor (or use OpenAIExtractor, GeminiExtractor)
-extractor = ClaudeExtractor()  # Requires ANTHROPIC_API_KEY env var
+# Define your genes of interest
+genes = ["KCNH2", "SCN5A", "KCNQ1"]
 
-# Run extraction
-with ExtractionPipeline(pubmed_client=PubMedClient(), extractor=extractor) as pipeline:
-    results = pipeline.run(PipelineInput(query="KCNH2 AND long QT", max_results=5))
+# Create pipeline that filters for heterozygous carriers only
+with GeneCentricPipeline(
+    extractor=ClaudeExtractor(),
+    filter_genotypes=["heterozygous"]  # Extract only het carriers!
+) as pipeline:
+    # Extract all variants and phenotypes for these genes
+    database = pipeline.extract_for_genes(
+        genes=genes,
+        max_papers_per_gene=100,
+        date_range=(2010, 2024)
+    )
 
-for result in results:
-    print(f"PMID: {result.pmid}, Variant: {result.variant}")
+# Analyze results
+for gene in genes:
+    variants = database.filter_by_gene(gene)
+    print(f"\n{gene}: {len(variants)} heterozygous variants")
+
+    for variant in variants[:5]:
+        print(f"  {variant.variant}:")
+        for pheno in variant.top_phenotypes(n=3):
+            print(f"    - {pheno.name} ({pheno.penetrance:.1%} penetrance)")
+
+# Export for analysis
+database.export_to_csv("heterozygous_variants.csv")
 ```
 
 ### Cost-Optimized Extraction
