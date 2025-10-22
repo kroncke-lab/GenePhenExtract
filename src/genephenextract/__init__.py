@@ -13,6 +13,12 @@ from .gene_pipeline import GeneCentricPipeline, GeneVariantDatabase
 from .hpo import PhenotypeOntologyMapper
 from .models import ExtractionResult, PhenotypeObservation, PipelineInput
 from .pdf_utility import PDFParserError, download_pdf, extract_text_from_pdf
+from .penetrance_extractor import PenetranceExtractor, extract_penetrance_for_gene
+from .penetrance_models import (
+    FamilyStudy,
+    Individual,
+    VariantPenetranceDatabase,
+)
 from .pipeline import ExtractionPipeline
 from .pubmed import PubMedClient
 from .variant_models import (
@@ -33,6 +39,7 @@ __all__ = [
     "MultiStageExtractor",
     "OpenAIExtractor",
     "RelevanceFilter",
+    "PenetranceExtractor",
     # Pipelines
     "ExtractionPipeline",
     "GeneCentricPipeline",
@@ -40,6 +47,10 @@ __all__ = [
     "ExtractionResult",
     "PhenotypeObservation",
     "PipelineInput",
+    # Penetrance models (THE CORE USE CASE)
+    "Individual",
+    "FamilyStudy",
+    "VariantPenetranceDatabase",
     # Variant models
     "ParsedVariant",
     "VariantPhenotypeAssociation",
@@ -53,6 +64,7 @@ __all__ = [
     "download_pdf",
     "extract_text_from_pdf",
     "extract_gene_from_variant",
+    "extract_penetrance_for_gene",
     "normalize_variant",
     "parse_variant",
 ]

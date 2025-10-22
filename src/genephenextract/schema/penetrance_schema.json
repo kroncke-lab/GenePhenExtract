@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "variant": {
+      "type": "string",
+      "description": "The genetic variant being studied (e.g., 'KCNH2 p.Ser906Leu')"
+    },
+    "gene": {
+      "type": "string",
+      "description": "The gene symbol (e.g., 'KCNH2')"
+    },
+    "study_type": {
+      "type": "string",
+      "enum": ["family", "case_series", "cohort", "case_report"],
+      "description": "Type of study"
+    },
+    "individuals": {
+      "type": "array",
+      "description": "List of ALL individuals mentioned (affected AND unaffected carriers)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier (e.g., 'proband', 'mother', 'patient_1')"
+          },
+          "relation": {
+            "type": "string",
+            "description": "Relation to proband (e.g., 'proband', 'mother', 'father', 'sibling', 'offspring', 'patient')"
+          },
+          "genotype": {
+            "type": "string",
+            "enum": ["heterozygous", "homozygous", "compound_heterozygous", "wild-type", "unknown"],
+            "description": "Genotype status"
+          },
+          "affected": {
+            "type": "boolean",
+            "description": "CRITICAL: true if individual has phenotype, false if carrier but NO phenotype (asymptomatic carrier)"
+          },
+          "phenotypes": {
+            "type": "array",
+            "description": "List of phenotypes (empty array if unaffected)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Phenotype name"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "Measurement or severity (e.g., 'QTc 480ms', 'severe')"
+                },
+                "age_at_onset": {
+                  "type": "number",
+                  "description": "Age when phenotype first appeared"
+                }
+              },
+              "required": ["name"]
+            }
+          },
+          "age": {
+            "type": "number",
+            "description": "Current age in years"
+          },
+          "sex": {
+            "type": "string",
+            "enum": ["male", "female", "unknown"],
+            "description": "Biological sex"
+          },
+          "age_at_onset": {
+            "type": "number",
+            "description": "Age at first symptoms"
+          },
+          "age_at_diagnosis": {
+            "type": "number",
+            "description": "Age at diagnosis"
+          }
+        },
+        "required": ["id", "genotype", "affected"]
+      }
+    }
+  },
+  "required": ["individuals"]
+}
