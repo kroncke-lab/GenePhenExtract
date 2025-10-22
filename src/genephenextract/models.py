@@ -43,6 +43,7 @@ class ExtractionResult:
     journal: Optional[str] = None
     publication_date: Optional[str] = None
     abstract: Optional[str] = None
+    notes: Optional[str] = None
     extracted_at: datetime = field(default_factory=datetime.utcnow)
 
     def __post_init__(self) -> None:
