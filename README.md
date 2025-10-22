@@ -20,10 +20,10 @@ It supports multiple LLM providers with cost optimization strategies:
 
 Perfect for:
 
-- Variant curation and penetrance modeling
-- Genotype–phenotype association studies
-- Automated database population from case reports
-- Large-scale literature mining with cost optimization
+- **Penetrance studies** - Extract individual family members (affected AND unaffected carriers)
+- **Variant curation** - Build databases of genotype-phenotype associations
+- **Pedigree extraction** - Capture clinical characteristics for each individual
+- **Large-scale literature mining** - Process hundreds of papers with cost optimization
 
 ## Getting Started
 
@@ -45,20 +45,98 @@ pip install -e ".[all-llms]"
 pip install -e ".[test]"
 ```
 
-### Quick Start
+### Quick Start: Unified Extraction (THE CORE USE CASE)
+
+**🔥 Extract genotype-phenotype data with automatic method selection:**
+
+GenePhenExtract supports **two extraction methods** depending on how papers report data:
+
+1. **Cohort-level**: For papers reporting aggregate counts ("50 patients, 35 had long QT")
+2. **Individual-level**: For papers with detailed patient information ("Proband: male, age 23, het, long QT")
+
+The `UnifiedExtractor` **automatically** determines which method to use:
 
 ```python
-from genephenextract import ClaudeExtractor, ExtractionPipeline, PubMedClient, PipelineInput
+from genephenextract import UnifiedExtractor, ClaudeExtractor, extract_gene_data
 
-# Set up extractor (or use OpenAIExtractor, GeminiExtractor)
-extractor = ClaudeExtractor()  # Requires ANTHROPIC_API_KEY env var
+# Create unified extractor (handles both cohort and individual data)
+extractor = UnifiedExtractor(llm_extractor=ClaudeExtractor())
 
-# Run extraction
-with ExtractionPipeline(pubmed_client=PubMedClient(), extractor=extractor) as pipeline:
-    results = pipeline.run(PipelineInput(query="KCNH2 AND long QT", max_results=5))
+# Extract all data for a gene from PubMed
+# Returns BOTH cohort and individual databases
+cohort_db, individual_db = extract_gene_data(
+    gene="KCNH2",
+    extractor=extractor,
+    max_papers=50,
+    date_range=(2020, 2024)
+)
 
-for result in results:
-    print(f"PMID: {result.pmid}, Variant: {result.variant}")
+# Analyze cohort data (aggregate counts from large studies)
+print("COHORT DATA:")
+summary = cohort_db.get_summary(genotype="heterozygous")
+print(f"Total cohorts: {summary['total_cohorts']}")
+print(f"Total carriers: {summary['total_carriers']}")
+
+for phenotype, stats in summary['phenotype_statistics'].items():
+    print(f"  {phenotype}: {stats['affected_count']}/{stats['total_carriers']} ({stats['frequency']:.1%})")
+
+# Analyze individual data (detailed patient characteristics)
+print("\nINDIVIDUAL DATA:")
+print(f"Family studies: {len(individual_db.studies)}")
+print(f"Total individuals: {len(individual_db.get_all_individuals())}")
+print(f"Affected carriers: {len(individual_db.get_affected_carriers())}")
+print(f"Unaffected carriers: {len(individual_db.get_unaffected_carriers())}")
+
+# Can analyze by age, sex, age at onset, etc.
+for ind in individual_db.get_all_carriers()[:5]:
+    print(f"  {ind.individual_id}: {ind.genotype}, age {ind.age}, affected={ind.affected}")
+```
+
+**Key features:**
+- ✅ **Cohort extraction**: Aggregate counts (affected vs unaffected)
+- ✅ **Individual extraction**: Detailed patient data (age, sex, age at onset)
+- ✅ **Automatic method selection**: Based on how paper reports data
+- ✅ **Combined analysis**: Use both approaches together
+- ✅ **Genotype filtering**: heterozygous, homozygous, compound heterozygous
+
+See [docs/EXTRACTION_METHODS.md](docs/EXTRACTION_METHODS.md) for detailed guide on when to use each method.
+
+See [examples/unified_extraction_example.py](examples/unified_extraction_example.py) for comprehensive examples.
+
+### Alternative: Gene-Centric Workflow
+
+**Extract phenotypes for HETEROZYGOUS carriers in specific genes:**
+
+```python
+from genephenextract import GeneCentricPipeline, ClaudeExtractor
+
+# Define your genes of interest
+genes = ["KCNH2", "SCN5A", "KCNQ1"]
+
+# Create pipeline that filters for heterozygous carriers only
+with GeneCentricPipeline(
+    extractor=ClaudeExtractor(),
+    filter_genotypes=["heterozygous"]  # Extract only het carriers!
+) as pipeline:
+    # Extract all variants and phenotypes for these genes
+    database = pipeline.extract_for_genes(
+        genes=genes,
+        max_papers_per_gene=100,
+        date_range=(2010, 2024)
+    )
+
+# Analyze results
+for gene in genes:
+    variants = database.filter_by_gene(gene)
+    print(f"\n{gene}: {len(variants)} heterozygous variants")
+
+    for variant in variants[:5]:
+        print(f"  {variant.variant}:")
+        for pheno in variant.top_phenotypes(n=3):
+            print(f"    - {pheno.name} ({pheno.penetrance:.1%} penetrance)")
+
+# Export for analysis
+database.export_to_csv("heterozygous_variants.csv")
 ```
 
 ### Cost-Optimized Extraction
