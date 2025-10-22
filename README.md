@@ -1,6 +1,6 @@
 # GenePhenExtract 🧬
 
-**LLM-powered extraction of gene, variant, and phenotype data from PubMed literature**
+**Multi-LLM powered extraction of gene, variant, and phenotype data from PubMed literature**
 
 GenePhenExtract automates the retrieval and interpretation of biomedical text to identify:
 
@@ -9,32 +9,83 @@ GenePhenExtract automates the retrieval and interpretation of biomedical text to
 - **Phenotypic data** relevant to those variants (e.g., QT prolongation, arrhythmia, syncope)
 - **Optional attributes** such as age, sex, treatment, and outcomes
 
-It leverages large language models through schema-guided extraction (via [LangExtract](https://github.com/google/langextract)) to return structured JSON outputs suitable for:
+It supports multiple LLM providers with cost optimization strategies:
+
+- ✅ **Anthropic Claude** - Best accuracy for medical text
+- ✅ **OpenAI GPT** - Fast and cost-effective
+- ✅ **Google Gemini** - Long context support
+- ✅ **Two-stage extraction** - Filter with cheap model, extract with expensive model
+- ✅ **PDF support** - Extract from supplementary PDFs
+- ✅ **Full-text retrieval** - Use PMC full-text when available
+
+Perfect for:
 
 - Variant curation and penetrance modeling
 - Genotype–phenotype association studies
 - Automated database population from case reports
+- Large-scale literature mining with cost optimization
 
 ## Getting Started
 
 ### Installation
 
 ```bash
+# Basic installation
 pip install -e .
+
+# Install with specific LLM provider
+pip install -e ".[anthropic]"  # For Claude
+pip install -e ".[openai]"     # For OpenAI/GPT
+pip install -e ".[google]"     # For Gemini
+
+# Install with all LLM providers
+pip install -e ".[all-llms]"
+
+# Install with testing dependencies
+pip install -e ".[test]"
 ```
 
-This will install the `genephenextract` command-line entry point onto your PATH. If you prefer
-not to install the package, you can still run the tool in-place with:
+### Quick Start
 
-```bash
-python -m genephenextract --query "KCNH2" --mock
+```python
+from genephenextract import ClaudeExtractor, ExtractionPipeline, PubMedClient, PipelineInput
+
+# Set up extractor (or use OpenAIExtractor, GeminiExtractor)
+extractor = ClaudeExtractor()  # Requires ANTHROPIC_API_KEY env var
+
+# Run extraction
+with ExtractionPipeline(pubmed_client=PubMedClient(), extractor=extractor) as pipeline:
+    results = pipeline.run(PipelineInput(query="KCNH2 AND long QT", max_results=5))
+
+for result in results:
+    print(f"PMID: {result.pmid}, Variant: {result.variant}")
 ```
 
-To use the LangExtract-backed extractor you will also need to install the optional dependency:
+### Cost-Optimized Extraction
 
-```bash
-pip install -e .[langextract]
+Save money by filtering irrelevant articles before expensive extraction:
+
+```python
+from genephenextract import (
+    ClaudeExtractor,
+    RelevanceFilter,
+    MultiStageExtractor,
+)
+
+# Stage 1: Cheap filter
+filter = RelevanceFilter(provider="openai", model="gpt-4o-mini")
+
+# Stage 2: Expensive extraction (only if relevant)
+extractor = MultiStageExtractor(
+    filter=filter,
+    extractor=ClaudeExtractor(),
+    min_confidence=0.7,  # Only extract if 70%+ confident
+)
+
+# This can save 75%+ on API costs!
 ```
+
+See [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md) for complete documentation.
 
 #### Configuring Gemini model selection
 

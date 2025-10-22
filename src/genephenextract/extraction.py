@@ -13,6 +13,16 @@ try:  # pragma: no cover - optional dependency
 except ImportError:  # pragma: no cover - optional dependency
     genai = None  # type: ignore
 
+try:  # pragma: no cover - optional dependency
+    import anthropic
+except ImportError:  # pragma: no cover - optional dependency
+    anthropic = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
+    import openai
+except ImportError:  # pragma: no cover - optional dependency
+    openai = None  # type: ignore
+
 from .models import ExtractionResult, PhenotypeObservation
 
 logger = logging.getLogger(__name__)
@@ -317,3 +327,355 @@ class MockExtractor(BaseExtractor):
     def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
         del text, schema_path
         return _result_from_payload(self.canned_response, pmid=pmid)
+
+
+class ClaudeExtractor(BaseExtractor):
+    """Extractor using Anthropic's Claude API."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "claude-3-5-sonnet-20241022",
+        max_tokens: int = 4096,
+    ) -> None:
+        if anthropic is None:
+            msg = "anthropic package not installed. Install it with `pip install anthropic`."
+            raise ImportError(msg)
+
+        if not api_key:
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            msg = "API key required. Provide via api_key parameter or ANTHROPIC_API_KEY environment variable."
+            raise ValueError(msg)
+
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model = model
+        self.max_tokens = max_tokens
+        logger.info("Initialized ClaudeExtractor with model %s", model)
+
+    def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
+        schema = _load_schema(schema_path)
+        prompt = self._create_extraction_prompt(text, schema)
+
+        try:
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            response_text = message.content[0].text
+
+            # Parse JSON from response
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+
+            result_data = json.loads(response_text)
+            logger.debug("Successfully extracted data using Claude")
+            return _result_from_payload(result_data, pmid=pmid)
+
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse JSON from Claude response: %s", e)
+            raise ExtractorError(f"Failed to parse extraction result: {e}") from e
+        except Exception as e:
+            logger.error("Claude API error: %s", e)
+            raise ExtractorError(f"Claude extraction failed: {e}") from e
+
+    def _create_extraction_prompt(self, text: str, schema: Dict[str, Any]) -> str:
+        return f"""You are a medical text extraction expert. Extract structured information from the following scientific text about genetic variants and phenotypes.
+
+Extract the following information according to this JSON schema:
+{json.dumps(schema, indent=2)}
+
+Text to analyze:
+{text}
+
+Requirements:
+1. Extract the genetic variant (gene and mutation) mentioned in the text
+2. Extract all phenotypes (clinical symptoms or conditions) mentioned
+3. If mentioned, extract carrier status (heterozygous, homozygous, compound heterozygous)
+4. If mentioned, extract patient age, sex, treatment, and outcome
+5. For phenotypes, provide the phenotype name. Ontology IDs are optional.
+
+Return ONLY a valid JSON object matching the schema. Do not include any explanation or markdown formatting.
+
+Example output format:
+{{
+  "variant": "KCNH2 c.2717C>T p.(Ser906Leu)",
+  "carrier_status": "heterozygous",
+  "phenotypes": [
+    {{"name": "prolonged QT interval"}},
+    {{"name": "syncope"}}
+  ],
+  "age": 45,
+  "sex": "female",
+  "treatment": "beta-blocker",
+  "outcome": "stable"
+}}"""
+
+
+class OpenAIExtractor(BaseExtractor):
+    """Extractor using OpenAI's API (GPT-4, GPT-3.5, etc.)."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.0,
+    ) -> None:
+        if openai is None:
+            msg = "openai package not installed. Install it with `pip install openai`."
+            raise ImportError(msg)
+
+        if not api_key:
+            api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            msg = "API key required. Provide via api_key parameter or OPENAI_API_KEY environment variable."
+            raise ValueError(msg)
+
+        self.client = openai.OpenAI(api_key=api_key)
+        self.model = model
+        self.temperature = temperature
+        logger.info("Initialized OpenAIExtractor with model %s", model)
+
+    def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
+        schema = _load_schema(schema_path)
+        prompt = self._create_extraction_prompt(text, schema)
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a medical text extraction expert. Extract structured genotype-phenotype information from scientific texts.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=self.temperature,
+                response_format={"type": "json_object"},
+            )
+
+            response_text = response.choices[0].message.content
+
+            result_data = json.loads(response_text)
+            logger.debug("Successfully extracted data using OpenAI")
+            return _result_from_payload(result_data, pmid=pmid)
+
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse JSON from OpenAI response: %s", e)
+            raise ExtractorError(f"Failed to parse extraction result: {e}") from e
+        except Exception as e:
+            logger.error("OpenAI API error: %s", e)
+            raise ExtractorError(f"OpenAI extraction failed: {e}") from e
+
+    def _create_extraction_prompt(self, text: str, schema: Dict[str, Any]) -> str:
+        return f"""Extract structured information from this scientific text about genetic variants and phenotypes.
+
+Schema:
+{json.dumps(schema, indent=2)}
+
+Text:
+{text}
+
+Extract:
+1. Genetic variant (gene and mutation)
+2. All phenotypes (clinical symptoms/conditions)
+3. Carrier status if mentioned (heterozygous, homozygous, compound heterozygous)
+4. Patient demographics if mentioned (age, sex)
+5. Treatment and outcome if mentioned
+
+Return ONLY valid JSON matching the schema."""
+
+
+class RelevanceFilter:
+    """Fast, cheap LLM filter to determine if an article is relevant before expensive extraction."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        provider: str = "openai",
+        model: Optional[str] = None,
+    ) -> None:
+        """Initialize relevance filter.
+
+        Args:
+            api_key: API key for the provider
+            provider: One of "openai", "anthropic", or "gemini"
+            model: Model to use. Defaults to cheapest option for each provider.
+        """
+        self.provider = provider.lower()
+
+        if self.provider == "openai":
+            if openai is None:
+                raise ImportError("openai package not installed")
+            if not api_key:
+                api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OpenAI API key required")
+            self.client = openai.OpenAI(api_key=api_key)
+            self.model = model or "gpt-4o-mini"  # Cheapest OpenAI model
+
+        elif self.provider == "anthropic":
+            if anthropic is None:
+                raise ImportError("anthropic package not installed")
+            if not api_key:
+                api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError("Anthropic API key required")
+            self.client = anthropic.Anthropic(api_key=api_key)
+            self.model = model or "claude-3-haiku-20240307"  # Cheapest Claude model
+
+        elif self.provider == "gemini":
+            if genai is None:
+                raise ImportError("google-generativeai package not installed")
+            if not api_key:
+                api_key = os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                raise ValueError("Google API key required")
+            genai.configure(api_key=api_key)
+            self.model = model or "gemini-1.5-flash"  # Fast, cheap Gemini model
+            self.client = genai.GenerativeModel(self.model)
+
+        else:
+            raise ValueError(f"Unsupported provider: {provider}")
+
+        logger.info("Initialized RelevanceFilter with %s/%s", provider, self.model)
+
+    def is_relevant(self, text: str, query_context: Optional[str] = None) -> tuple[bool, float, str]:
+        """Check if text is relevant for extraction.
+
+        Args:
+            text: Article text (abstract or full-text)
+            query_context: Optional context about what we're looking for
+
+        Returns:
+            Tuple of (is_relevant, confidence_score, reason)
+        """
+        prompt = self._create_filter_prompt(text, query_context)
+
+        try:
+            if self.provider == "openai":
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a medical literature filter. Determine if articles contain genetic variant and phenotype information.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.0,
+                    response_format={"type": "json_object"},
+                )
+                result = json.loads(response.choices[0].message.content)
+
+            elif self.provider == "anthropic":
+                message = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=256,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                content = message.content[0].text
+                # Extract JSON from response
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    content = content.split("```")[1].split("```")[0].strip()
+                result = json.loads(content)
+
+            elif self.provider == "gemini":
+                response = self.client.generate_content(prompt)
+                content = response.text
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                result = json.loads(content)
+
+            is_relevant = result.get("relevant", False)
+            confidence = result.get("confidence", 0.5)
+            reason = result.get("reason", "")
+
+            logger.debug("Relevance check: relevant=%s, confidence=%.2f", is_relevant, confidence)
+            return is_relevant, confidence, reason
+
+        except Exception as e:
+            logger.warning("Relevance filter error: %s. Assuming relevant.", e)
+            # On error, assume relevant to avoid false negatives
+            return True, 0.5, f"Filter error: {e}"
+
+    def _create_filter_prompt(self, text: str, query_context: Optional[str] = None) -> str:
+        context_info = f"\n\nWe are specifically looking for: {query_context}" if query_context else ""
+
+        return f"""Determine if this scientific article contains information about:
+1. Specific genetic variants (gene names and mutations)
+2. Associated phenotypes or clinical outcomes
+3. Patient data or case reports
+
+{context_info}
+
+Article text:
+{text[:2000]}...
+
+Return JSON with:
+{{
+  "relevant": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "brief explanation"
+}}
+
+Be strict: only mark as relevant if the article clearly discusses specific genetic variants with phenotype data."""
+
+
+class MultiStageExtractor(BaseExtractor):
+    """Two-stage extraction: cheap filter first, then expensive extraction if relevant."""
+
+    def __init__(
+        self,
+        filter: RelevanceFilter,
+        extractor: BaseExtractor,
+        min_confidence: float = 0.7,
+    ) -> None:
+        """Initialize multi-stage extractor.
+
+        Args:
+            filter: RelevanceFilter for first-pass filtering
+            extractor: Primary extractor to use for relevant articles
+            min_confidence: Minimum confidence score to proceed with extraction (0.0-1.0)
+        """
+        self.filter = filter
+        self.extractor = extractor
+        self.min_confidence = min_confidence
+        self.stats = {"filtered": 0, "extracted": 0, "skipped": 0}
+        logger.info("Initialized MultiStageExtractor with min_confidence=%.2f", min_confidence)
+
+    def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
+        # First stage: cheap relevance check
+        is_relevant, confidence, reason = self.filter.is_relevant(text)
+
+        if not is_relevant or confidence < self.min_confidence:
+            self.stats["skipped"] += 1
+            logger.info(
+                "Skipping PMID %s (relevance=%.2f, threshold=%.2f): %s",
+                pmid,
+                confidence,
+                self.min_confidence,
+                reason,
+            )
+            # Return empty result for irrelevant articles
+            return ExtractionResult(
+                pmid=pmid,
+                variant="",
+                phenotypes=[],
+                notes=f"Filtered out: {reason} (confidence: {confidence:.2f})",
+            )
+
+        # Second stage: expensive extraction
+        self.stats["extracted"] += 1
+        logger.info("Processing PMID %s with full extraction (relevance=%.2f)", pmid, confidence)
+        return self.extractor.extract(text, pmid=pmid, schema_path=schema_path)
+
+    def get_stats(self) -> Dict[str, int]:
+        """Get statistics on filtering vs extraction."""
+        return self.stats.copy()
