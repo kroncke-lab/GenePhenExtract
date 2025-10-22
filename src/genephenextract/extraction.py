@@ -490,6 +490,178 @@ Extract:
 Return ONLY valid JSON matching the schema."""
 
 
+class GroqExtractor(BaseExtractor):
+    """Extractor using Groq's ultra-fast API (10x faster than OpenAI, free tier available).
+
+    Groq provides very fast inference on open-source models like Llama 3.1.
+    Free tier: 30 RPM, 14,400 requests/day.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "llama-3.1-70b-versatile",
+        temperature: float = 0.0,
+    ) -> None:
+        try:
+            from groq import Groq
+        except ImportError as e:
+            msg = "groq package not installed. Install it with `pip install groq`."
+            raise ImportError(msg) from e
+
+        if not api_key:
+            api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            msg = "API key required. Provide via api_key parameter or GROQ_API_KEY environment variable."
+            raise ValueError(msg)
+
+        self.client = Groq(api_key=api_key)
+        self.model = model
+        self.temperature = temperature
+        logger.info("Initialized GroqExtractor with model %s", model)
+
+    def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
+        schema = _load_schema(schema_path)
+        prompt = self._create_extraction_prompt(text, schema)
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a medical text extraction expert. Extract structured genotype-phenotype information from scientific texts. Return ONLY valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=self.temperature,
+                response_format={"type": "json_object"},
+            )
+
+            response_text = response.choices[0].message.content
+
+            result_data = json.loads(response_text)
+            logger.debug("Successfully extracted data using Groq")
+            return _result_from_payload(result_data, pmid=pmid)
+
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse JSON from Groq response: %s", e)
+            raise ExtractorError(f"Failed to parse extraction result: {e}") from e
+        except Exception as e:
+            logger.error("Groq API error: %s", e)
+            raise ExtractorError(f"Groq extraction failed: {e}") from e
+
+    def _create_extraction_prompt(self, text: str, schema: Dict[str, Any]) -> str:
+        return f"""Extract structured information from this scientific text about genetic variants and phenotypes.
+
+Schema:
+{json.dumps(schema, indent=2)}
+
+Text:
+{text}
+
+Extract:
+1. Genetic variant (gene and mutation)
+2. All phenotypes (clinical symptoms/conditions)
+3. Carrier status if mentioned (heterozygous, homozygous, compound heterozygous)
+4. Patient demographics if mentioned (age, sex)
+5. Treatment and outcome if mentioned
+
+Return ONLY valid JSON matching the schema."""
+
+
+class OllamaExtractor(BaseExtractor):
+    """Extractor using local Ollama models (completely free, runs on your machine).
+
+    Ollama allows you to run open-source LLMs locally with no API costs.
+    Requires Ollama to be installed and running: https://ollama.com
+    """
+
+    def __init__(
+        self,
+        model: str = "llama3.1:8b",
+        base_url: str = "http://localhost:11434",
+        temperature: float = 0.0,
+    ) -> None:
+        try:
+            import requests
+            self.requests = requests
+        except ImportError as e:
+            msg = "requests package not installed. Install it with `pip install requests`."
+            raise ImportError(msg) from e
+
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.temperature = temperature
+        logger.info("Initialized OllamaExtractor with model %s at %s", model, base_url)
+
+        # Check if Ollama is running
+        try:
+            response = self.requests.get(f"{self.base_url}/api/tags")
+            response.raise_for_status()
+        except Exception as e:
+            msg = f"Cannot connect to Ollama at {self.base_url}. Make sure Ollama is running: `ollama serve`"
+            raise ConnectionError(msg) from e
+
+    def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
+        schema = _load_schema(schema_path)
+        prompt = self._create_extraction_prompt(text, schema)
+
+        try:
+            response = self.requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json",
+                    "options": {
+                        "temperature": self.temperature,
+                    }
+                },
+                timeout=120,  # 2 minute timeout for local inference
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            response_text = result.get("response", "")
+
+            # Parse JSON from response
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+
+            result_data = json.loads(response_text)
+            logger.debug("Successfully extracted data using Ollama")
+            return _result_from_payload(result_data, pmid=pmid)
+
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse JSON from Ollama response: %s", e)
+            raise ExtractorError(f"Failed to parse extraction result: {e}") from e
+        except Exception as e:
+            logger.error("Ollama API error: %s", e)
+            raise ExtractorError(f"Ollama extraction failed: {e}") from e
+
+    def _create_extraction_prompt(self, text: str, schema: Dict[str, Any]) -> str:
+        return f"""You are a medical text extraction expert. Extract structured information from the following scientific text about genetic variants and phenotypes.
+
+Extract the following information according to this JSON schema:
+{json.dumps(schema, indent=2)}
+
+Text to analyze:
+{text}
+
+Requirements:
+1. Extract the genetic variant (gene and mutation) mentioned in the text
+2. Extract all phenotypes (clinical symptoms or conditions) mentioned
+3. If mentioned, extract carrier status (heterozygous, homozygous, compound heterozygous)
+4. If mentioned, extract patient age, sex, treatment, and outcome
+5. For phenotypes, provide the phenotype name. Ontology IDs are optional.
+
+Return ONLY a valid JSON object matching the schema. Do not include any explanation."""
+
+
 class RelevanceFilter:
     """Fast, cheap LLM filter to determine if an article is relevant before expensive extraction."""
 
