@@ -45,49 +45,63 @@ pip install -e ".[all-llms]"
 pip install -e ".[test]"
 ```
 
-### Quick Start: Penetrance Extraction (THE CORE USE CASE)
+### Quick Start: Unified Extraction (THE CORE USE CASE)
 
-**🔥 Extract INDIVIDUAL family members to calculate TRUE PENETRANCE:**
+**🔥 Extract genotype-phenotype data with automatic method selection:**
 
-The primary mission is to extract **each individual family member** (both affected and unaffected carriers) from papers to calculate penetrance = affected carriers / total carriers.
+GenePhenExtract supports **two extraction methods** depending on how papers report data:
+
+1. **Cohort-level**: For papers reporting aggregate counts ("50 patients, 35 had long QT")
+2. **Individual-level**: For papers with detailed patient information ("Proband: male, age 23, het, long QT")
+
+The `UnifiedExtractor` **automatically** determines which method to use:
 
 ```python
-from genephenextract import PenetranceExtractor, ClaudeExtractor, extract_penetrance_for_gene
+from genephenextract import UnifiedExtractor, ClaudeExtractor, extract_gene_data
 
-# Extract individual-level data for a gene
-extractor = PenetranceExtractor(llm_extractor=ClaudeExtractor())
+# Create unified extractor (handles both cohort and individual data)
+extractor = UnifiedExtractor(llm_extractor=ClaudeExtractor())
 
-# Get family studies from PubMed
-family_studies = extract_penetrance_for_gene(
+# Extract all data for a gene from PubMed
+# Returns BOTH cohort and individual databases
+cohort_db, individual_db = extract_gene_data(
     gene="KCNH2",
     extractor=extractor,
-    max_papers=50
+    max_papers=50,
+    date_range=(2020, 2024)
 )
 
-# Build penetrance database
-from genephenextract import VariantPenetranceDatabase
+# Analyze cohort data (aggregate counts from large studies)
+print("COHORT DATA:")
+summary = cohort_db.get_summary(genotype="heterozygous")
+print(f"Total cohorts: {summary['total_cohorts']}")
+print(f"Total carriers: {summary['total_carriers']}")
 
-database = VariantPenetranceDatabase()
-for study in family_studies:
-    database.add_study(study)
+for phenotype, stats in summary['phenotype_statistics'].items():
+    print(f"  {phenotype}: {stats['affected_count']}/{stats['total_carriers']} ({stats['frequency']:.1%})")
 
-# Calculate TRUE penetrance (including unaffected carriers!)
-for variant, data in database.variants.items():
-    penetrance = database.calculate_overall_penetrance()
-    print(f"{variant}: {penetrance:.1%} penetrance")
-    print(f"  Affected carriers: {len(data.get_affected_carriers())}")
-    print(f"  Unaffected carriers: {len(data.get_unaffected_carriers())}")
-    print(f"  Total carriers: {len(data.get_all_carriers())}")
+# Analyze individual data (detailed patient characteristics)
+print("\nINDIVIDUAL DATA:")
+print(f"Family studies: {len(individual_db.studies)}")
+print(f"Total individuals: {len(individual_db.get_all_individuals())}")
+print(f"Affected carriers: {len(individual_db.get_affected_carriers())}")
+print(f"Unaffected carriers: {len(individual_db.get_unaffected_carriers())}")
+
+# Can analyze by age, sex, age at onset, etc.
+for ind in individual_db.get_all_carriers()[:5]:
+    print(f"  {ind.individual_id}: {ind.genotype}, age {ind.age}, affected={ind.affected}")
 ```
 
 **Key features:**
-- ✅ Extracts **EACH individual** (proband, mother, father, siblings)
-- ✅ Records **affected status** (true = has phenotype, false = asymptomatic carrier)
-- ✅ Captures **clinical characteristics** (age, sex, age at onset, genotype)
-- ✅ Calculates **TRUE penetrance** across multiple studies
-- ✅ Handles heterozygous, homozygous, and compound heterozygous carriers
+- ✅ **Cohort extraction**: Aggregate counts (affected vs unaffected)
+- ✅ **Individual extraction**: Detailed patient data (age, sex, age at onset)
+- ✅ **Automatic method selection**: Based on how paper reports data
+- ✅ **Combined analysis**: Use both approaches together
+- ✅ **Genotype filtering**: heterozygous, homozygous, compound heterozygous
 
-See [examples/penetrance_workflow.py](examples/penetrance_workflow.py) for complete examples.
+See [docs/EXTRACTION_METHODS.md](docs/EXTRACTION_METHODS.md) for detailed guide on when to use each method.
+
+See [examples/unified_extraction_example.py](examples/unified_extraction_example.py) for comprehensive examples.
 
 ### Alternative: Gene-Centric Workflow
 

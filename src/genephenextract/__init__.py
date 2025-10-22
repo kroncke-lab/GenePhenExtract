@@ -1,5 +1,10 @@
 """Top-level package for GenePhenExtract."""
 
+from .cohort_models import (
+    CohortData,
+    GeneticCohortDatabase,
+    PhenotypeCount,
+)
 from .extraction import (
     BaseExtractor,
     ClaudeExtractor,
@@ -21,6 +26,7 @@ from .penetrance_models import (
 )
 from .pipeline import ExtractionPipeline
 from .pubmed import PubMedClient
+from .unified_extractor import UnifiedExtractor, extract_gene_data
 from .variant_models import (
     ParsedVariant,
     VariantPhenotypeAssociation,
@@ -40,6 +46,7 @@ __all__ = [
     "OpenAIExtractor",
     "RelevanceFilter",
     "PenetranceExtractor",
+    "UnifiedExtractor",
     # Pipelines
     "ExtractionPipeline",
     "GeneCentricPipeline",
@@ -47,7 +54,11 @@ __all__ = [
     "ExtractionResult",
     "PhenotypeObservation",
     "PipelineInput",
-    # Penetrance models (THE CORE USE CASE)
+    # Cohort models (for aggregate counts)
+    "CohortData",
+    "PhenotypeCount",
+    "GeneticCohortDatabase",
+    # Individual models (for detailed pedigrees)
     "Individual",
     "FamilyStudy",
     "VariantPenetranceDatabase",
@@ -65,6 +76,7 @@ __all__ = [
     "extract_text_from_pdf",
     "extract_gene_from_variant",
     "extract_penetrance_for_gene",
+    "extract_gene_data",
     "normalize_variant",
     "parse_variant",
 ]
