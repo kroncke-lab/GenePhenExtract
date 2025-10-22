@@ -19,6 +19,18 @@ dependencies = [
 langextract = [
     "langextract>=0.2.0",
 ]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-benchmark>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-asyncio>=0.21.0",
+]
+dev = [
+    "genephenextract[test]",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
 
 [project.scripts]
 genephenextract = "genephenextract.cli:main"
@@ -36,4 +48,14 @@ line-length = 100
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests (may require network access)",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "benchmark: marks tests as benchmarks",
+]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+]
 
