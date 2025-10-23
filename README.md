@@ -9,14 +9,30 @@ GenePhenExtract automates the retrieval and interpretation of biomedical text to
 - **Phenotypic data** relevant to those variants (e.g., QT prolongation, arrhythmia, syncope)
 - **Optional attributes** such as age, sex, treatment, and outcomes
 
-It supports multiple LLM providers with cost optimization strategies:
+**Start for FREE with Google Gemini, then upgrade to paid models if needed!**
 
-- ✅ **Anthropic Claude** - Best accuracy for medical text
-- ✅ **OpenAI GPT** - Fast and cost-effective
-- ✅ **Google Gemini** - Long context support
-- ✅ **Two-stage extraction** - Filter with cheap model, extract with expensive model
-- ✅ **PDF support** - Extract from supplementary PDFs
-- ✅ **Full-text retrieval** - Use PMC full-text when available
+## 💰 LLM Cost Comparison
+
+| Provider | Model | Cost (per 1M input tokens) | Free Tier | Best For |
+|----------|-------|---------------------------|-----------|----------|
+| **Google Gemini** | gemini-1.5-flash | $0.075 | ✅ **15 RPM free** | **START HERE** - Testing & development |
+| **Google Gemini** | gemini-1.5-pro | $1.25 | ✅ **2 RPM free** | Free tier with good accuracy |
+| OpenAI | gpt-4o-mini | $0.15 | ❌ Pay-per-use | Cost-effective for production |
+| OpenAI | gpt-4o | $2.50 | ❌ Pay-per-use | Better accuracy, moderate cost |
+| Anthropic | claude-3-5-haiku | $1.00 | ❌ Pay-per-use | Fast, balanced |
+| Anthropic | claude-3-5-sonnet | $3.00 | ❌ Pay-per-use | **Best accuracy** after benchmarking |
+
+**💡 Recommendation:** Start with Gemini's free tier for testing and initial benchmarking. Once you validate your use case, you can upgrade to paid models for better accuracy or higher throughput.
+
+## Key Features
+
+- ✅ **FREE tier available** - Use Google Gemini at no cost for testing
+- ✅ **PubMed integration** - Direct API access to XML-formatted publications
+- ✅ **Full-text retrieval** - Automatically fetches PMC full-text + supplementary files
+- ✅ **Cost optimization** - Two-stage filtering saves 75%+ on API costs
+- ✅ **Multiple LLM providers** - Switch between Gemini, OpenAI, Claude
+- ✅ **Individual-level extraction** - Get detailed patient data (age, sex, phenotypes)
+- ✅ **Cohort-level extraction** - Extract aggregate statistics from large studies
 
 Perfect for:
 
@@ -30,24 +46,42 @@ Perfect for:
 ### Installation
 
 ```bash
-# Basic installation
+# Basic installation (required)
 pip install -e .
 
-# Install with specific LLM provider
-pip install -e ".[anthropic]"  # For Claude
-pip install -e ".[openai]"     # For OpenAI/GPT
-pip install -e ".[google]"     # For Gemini
+# Install with FREE Google Gemini (RECOMMENDED to start)
+pip install -e ".[google]"
 
-# Install with all LLM providers
+# Optional: Install other LLM providers for benchmarking
+pip install -e ".[openai]"     # For OpenAI/GPT (paid)
+pip install -e ".[anthropic]"  # For Claude (paid)
+
+# Install all providers at once
 pip install -e ".[all-llms]"
 
 # Install with testing dependencies
 pip install -e ".[test]"
 ```
 
-### Quick Start: Unified Extraction (THE CORE USE CASE)
+### Get Your FREE API Key
 
-**🔥 Extract genotype-phenotype data with automatic method selection:**
+**Option 1: Google Gemini (FREE tier - recommended)**
+1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Click "Get API Key" and create a new key
+3. Export it: `export GOOGLE_API_KEY='your-key-here'`
+4. Free tier: 15 requests/minute for gemini-1.5-flash, 2 requests/minute for gemini-1.5-pro
+
+**Option 2: OpenAI (Paid)**
+- Get key from [OpenAI Platform](https://platform.openai.com/api-keys)
+- Export: `export OPENAI_API_KEY='your-key-here'`
+
+**Option 3: Anthropic Claude (Paid)**
+- Get key from [Anthropic Console](https://console.anthropic.com/)
+- Export: `export ANTHROPIC_API_KEY='your-key-here'`
+
+### Quick Start: FREE Tier Example
+
+**🆓 Extract genotype-phenotype data using FREE Google Gemini:**
 
 GenePhenExtract supports **two extraction methods** depending on how papers report data:
 
@@ -57,10 +91,14 @@ GenePhenExtract supports **two extraction methods** depending on how papers repo
 The `UnifiedExtractor` **automatically** determines which method to use:
 
 ```python
-from genephenextract import UnifiedExtractor, ClaudeExtractor, extract_gene_data
+import os
+from genephenextract import UnifiedExtractor, GeminiExtractor, extract_gene_data
 
-# Create unified extractor (handles both cohort and individual data)
-extractor = UnifiedExtractor(llm_extractor=ClaudeExtractor())
+# Use FREE Google Gemini (15 requests/min free tier)
+api_key = os.getenv("GOOGLE_API_KEY")
+extractor = UnifiedExtractor(
+    llm_extractor=GeminiExtractor(api_key=api_key, model="gemini-1.5-flash")
+)
 
 # Extract all data for a gene from PubMed
 # Returns BOTH cohort and individual databases
@@ -108,14 +146,17 @@ See [examples/unified_extraction_example.py](examples/unified_extraction_example
 **Extract phenotypes for HETEROZYGOUS carriers in specific genes:**
 
 ```python
-from genephenextract import GeneCentricPipeline, ClaudeExtractor
+import os
+from genephenextract import GeneCentricPipeline, GeminiExtractor
 
 # Define your genes of interest
 genes = ["KCNH2", "SCN5A", "KCNQ1"]
 
 # Create pipeline that filters for heterozygous carriers only
+# Using FREE Gemini tier
+api_key = os.getenv("GOOGLE_API_KEY")
 with GeneCentricPipeline(
-    extractor=ClaudeExtractor(),
+    extractor=GeminiExtractor(api_key=api_key, model="gemini-1.5-flash"),
     filter_genotypes=["heterozygous"]  # Extract only het carriers!
 ) as pipeline:
     # Extract all variants and phenotypes for these genes
@@ -139,53 +180,166 @@ for gene in genes:
 database.export_to_csv("heterozygous_variants.csv")
 ```
 
-### Cost-Optimized Extraction
+### Simple PubMed Search Example
+
+**Basic example: Search PubMed and extract from individual papers**
+
+```python
+import os
+from genephenextract import PubMedClient, GeminiExtractor
+
+# Initialize FREE Gemini extractor
+api_key = os.getenv("GOOGLE_API_KEY")
+extractor = GeminiExtractor(api_key=api_key, model="gemini-1.5-flash")
+
+# Search PubMed for papers
+client = PubMedClient()
+pmids = client.search("KCNH2 AND long QT syndrome", retmax=10)
+
+print(f"Found {len(pmids)} papers")
+
+# Extract data from each paper
+for pmid in pmids[:3]:  # Just first 3 for demo
+    # Get full text (or abstract if full text unavailable)
+    text, source = client.fetch_text(pmid, prefer_full_text=True)
+
+    # Extract structured data
+    result = extractor.extract(text, pmid=pmid)
+
+    # Check if paper contains relevant genetic data
+    if result.variant and result.phenotypes:
+        print(f"\n✓ PMID {pmid} has genetic variant data:")
+        print(f"  Variant: {result.variant}")
+        print(f"  Genotype: {result.carrier_status}")
+        print(f"  Phenotypes: {[p.phenotype for p in result.phenotypes[:3]]}")
+        if result.age:
+            print(f"  Patient age: {result.age}")
+    else:
+        print(f"\n✗ PMID {pmid} - no variant data found")
+```
+
+## Advanced Usage (After Benchmarking)
+
+Once you've tested with the free tier and want to improve accuracy or scale up, consider these options:
+
+### Cost-Optimized Two-Stage Extraction
 
 Save money by filtering irrelevant articles before expensive extraction:
 
 ```python
 from genephenextract import (
     ClaudeExtractor,
+    GeminiExtractor,
     RelevanceFilter,
     MultiStageExtractor,
 )
 
-# Stage 1: Cheap filter
-filter = RelevanceFilter(provider="openai", model="gpt-4o-mini")
+# Stage 1: FREE Gemini filter (or cheap OpenAI)
+filter = RelevanceFilter(provider="google", model="gemini-1.5-flash")
 
-# Stage 2: Expensive extraction (only if relevant)
+# Stage 2: Expensive extraction ONLY if relevant
+# Use Claude after you've benchmarked and confirmed it's worth the cost
 extractor = MultiStageExtractor(
     filter=filter,
-    extractor=ClaudeExtractor(),
+    extractor=ClaudeExtractor(),  # Only used on filtered papers
     min_confidence=0.7,  # Only extract if 70%+ confident
 )
 
 # This can save 75%+ on API costs!
 ```
 
-See [docs/LLM_INTEGRATION.md](docs/LLM_INTEGRATION.md) for complete documentation.
+### Switching to Paid Models
 
-#### Configuring Gemini model selection
+After benchmarking with free tier, you might want better accuracy:
 
-When using the direct Gemini integration you may need to target a model version that is available to your
-Google AI Studio project. GenePhenExtract defaults to `gemini-1.5-pro-latest`, but will automatically fall back to
-the best model your API key can access if that default is unavailable. You can override the model in two ways:
+```python
+from genephenextract import ClaudeExtractor, OpenAIExtractor
 
-1. Pass the `model` argument when instantiating `GeminiExtractor` in Python code.
-2. Set the `GENEPHENEXTRACT_GEMINI_MODEL` environment variable when using the CLI or test script.
+# Option 1: Claude (best accuracy, highest cost)
+extractor = ClaudeExtractor(model="claude-3-5-sonnet-20241022")
 
-If a specific model is unavailable (for example when forcing a value via the environment variable), the extractor
-raises a clear error that includes the models your API key is authorised to use. You can also visit Google AI Studio
-to manage model access.
+# Option 2: OpenAI (good balance of cost and accuracy)
+extractor = OpenAIExtractor(model="gpt-4o")
 
-#### Supplementary material ingestion
+# Option 3: OpenAI mini (cheapest paid option)
+extractor = OpenAIExtractor(model="gpt-4o-mini")
+```
 
-Many case reports place key cohort details (e.g., index patients, QTc measurements, or pedigree tables) in
-supplementary files instead of the article body. When a PMC article links DOCX, TXT, CSV, TSV, or XML
-supplementary assets, GenePhenExtract now downloads those files and appends their text to the full-text payload
-handed to the extractor. This makes it easier for downstream LLMs to surface details that only appear in
-supplementary appendices. Files in unsupported formats (such as PDF) are skipped gracefully, so you can still
-download them manually if needed.
+## Troubleshooting
+
+### Common Issues
+
+**Problem: "API key is required for GeminiExtractor"**
+```bash
+# Make sure you've exported your API key
+export GOOGLE_API_KEY='your-key-here'
+
+# Verify it's set
+echo $GOOGLE_API_KEY
+```
+
+**Problem: "Rate limit exceeded" or "429 error"**
+- Free tier limits: 15 requests/min for gemini-1.5-flash, 2 requests/min for gemini-1.5-pro
+- Solution: Add a small delay between requests or upgrade to paid tier
+```python
+import time
+for pmid in pmids:
+    result = extractor.extract(text, pmid=pmid)
+    time.sleep(4)  # Wait 4 seconds between requests for free tier
+```
+
+**Problem: "No text content available for PMID"**
+- Some papers don't have abstracts or full text available
+- Solution: The code will skip these automatically; check the logs
+
+**Problem: "Failed to parse extraction result"**
+- The LLM sometimes returns malformed JSON
+- Solution: This is more common with free models; retry or switch to a more reliable model
+
+**Problem: Gemini model not available**
+- Override the model selection:
+```python
+extractor = GeminiExtractor(api_key=api_key, model="gemini-1.5-flash")
+```
+- Or set environment variable:
+```bash
+export GENEPHENEXTRACT_GEMINI_MODEL="gemini-1.5-flash"
+```
+
+### Tips for Best Results
+
+1. **Start small**: Test with 5-10 papers before scaling up
+2. **Use full text when available**: Set `prefer_full_text=True` for more complete data
+3. **Check extraction quality**: Manually review a sample of results before processing hundreds of papers
+4. **Benchmark models**: Try free Gemini first, then compare against paid models on your specific use case
+5. **Monitor costs**: Track API usage in your provider's dashboard
+
+## Advanced Features
+
+### Supplementary Material Extraction
+
+GenePhenExtract automatically downloads and extracts text from supplementary files:
+- **Supported formats**: DOCX, TXT, CSV, TSV, XML
+- **Automatic integration**: Supplementary text is appended to full-text
+- **Use case**: Many papers put patient tables and pedigrees in supplementary files
+
+This happens automatically when using `fetch_full_text()` or `fetch_text()`.
+
+### Configuring Gemini Model Selection
+
+You can override which Gemini model to use:
+
+**Method 1: In code**
+```python
+extractor = GeminiExtractor(api_key=api_key, model="gemini-1.5-flash")
+```
+
+**Method 2: Environment variable**
+```bash
+export GENEPHENEXTRACT_GEMINI_MODEL="gemini-1.5-flash"
+```
+
+The extractor will automatically fall back to the best available model if your first choice isn't available.
 
 ### Command-line usage
 
