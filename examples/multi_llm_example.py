@@ -20,6 +20,7 @@ from genephenextract import (
     ClaudeExtractor,
     ExtractionPipeline,
     GeminiExtractor,
+    GroqExtractor,
     MockExtractor,
     MultiStageExtractor,
     OpenAIExtractor,
@@ -46,7 +47,14 @@ def example_1_basic_extractors():
         "Mock (free, instant)": MockExtractor(),
     }
 
-    # Add FREE Gemini if API key is available (RECOMMENDED TO START)
+    # Add FREE Groq if API key is available (FASTEST FREE OPTION!)
+    if os.getenv("GROQ_API_KEY"):
+        extractors["Groq Llama 3.3 70B (FREE tier - 30 RPM - FASTEST!)"] = GroqExtractor(
+            api_key=os.getenv("GROQ_API_KEY"),
+            model="llama-3.3-70b-versatile"
+        )
+
+    # Add FREE Gemini if API key is available
     if os.getenv("GOOGLE_API_KEY"):
         extractors["Gemini 1.5 Flash (FREE tier - 15 RPM)"] = GeminiExtractor(
             api_key=os.getenv("GOOGLE_API_KEY"),
@@ -86,17 +94,34 @@ def example_2_cost_optimization():
     print("Example 2: Cost Optimization with Filtering (FREE tier)")
     print("=" * 60)
 
-    # Skip if no Google API key
-    if not os.getenv("GOOGLE_API_KEY"):
-        print("Skipping: requires GOOGLE_API_KEY (free tier available!)")
-        print("Get your free key at: https://makersuite.google.com/app/apikey")
+    # Skip if no free API keys
+    has_groq = os.getenv("GROQ_API_KEY")
+    has_gemini = os.getenv("GOOGLE_API_KEY")
+
+    if not has_groq and not has_gemini:
+        print("Skipping: requires GROQ_API_KEY or GOOGLE_API_KEY (both free!)")
+        print("Get Groq key (fastest): https://console.groq.com/")
+        print("Get Gemini key: https://makersuite.google.com/app/apikey")
         return
 
     query = "genetics"  # Broad query will return many irrelevant articles
     max_results = 20
 
-    # Stage 1: FREE Gemini filter
-    relevance_filter = RelevanceFilter(provider="google", model="gemini-1.5-flash")
+    # Stage 1: FREE filter (use Groq if available - fastest!)
+    if has_groq:
+        relevance_filter = RelevanceFilter(
+            api_key=os.getenv("GROQ_API_KEY"),
+            provider="groq",
+            model="llama-3.3-70b-versatile"
+        )
+        filter_desc = "groq/llama-3.3-70b (FREE, ultra-fast)"
+    else:
+        relevance_filter = RelevanceFilter(
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            provider="google",
+            model="gemini-1.5-flash"
+        )
+        filter_desc = "gemini-1.5-flash (FREE)"
 
     # Stage 2: Better model for extraction (still free tier!)
     # OR use a paid model after benchmarking
@@ -104,6 +129,13 @@ def example_2_cost_optimization():
         # Use Claude if you've benchmarked and want best accuracy
         expensive_extractor = ClaudeExtractor(model="claude-3-5-sonnet-20241022")
         stage_2_desc = "claude-3-5-sonnet (paid)"
+    elif has_groq:
+        # Use Groq (still free tier, but slower for extraction than filtering)
+        expensive_extractor = GroqExtractor(
+            api_key=os.getenv("GROQ_API_KEY"),
+            model="llama-3.3-70b-versatile"
+        )
+        stage_2_desc = "groq/llama-3.3-70b (FREE tier)"
     else:
         # Use better Gemini model (still free tier)
         expensive_extractor = GeminiExtractor(
@@ -120,7 +152,7 @@ def example_2_cost_optimization():
     client = PubMedClient()
 
     print(f"\nProcessing {max_results} articles with two-stage extraction...")
-    print("Stage 1: FREE filter (gemini-1.5-flash)")
+    print(f"Stage 1: FREE filter ({filter_desc})")
     print(f"Stage 2: Extraction ({stage_2_desc}) if relevant")
 
     with ExtractionPipeline(pubmed_client=client, extractor=multi_stage) as pipeline:
@@ -297,13 +329,17 @@ def example_5_batch_with_resume():
 if __name__ == "__main__":
     print("GenePhenExtract Multi-LLM Examples")
     print("=" * 60)
-    print("\n🆓 RECOMMENDED: Start with FREE Google Gemini tier!")
-    print("Get your free API key at: https://makersuite.google.com/app/apikey")
+    print("\n🆓 RECOMMENDED: Start with FREE tier!")
+    print("\nGet your free API key:")
+    print("  - Groq (FASTEST): https://console.groq.com/")
+    print("  - Gemini: https://makersuite.google.com/app/apikey")
     print("\nSet environment variables for API keys:")
-    print("  export GOOGLE_API_KEY='...'        # FREE tier (recommended to start)")
+    print("  export GROQ_API_KEY='...'          # FREE tier - 30 req/min (FASTEST!)")
+    print("  export GOOGLE_API_KEY='...'        # FREE tier - 15 req/min (recommended)")
     print("  export OPENAI_API_KEY='...'        # Paid (for benchmarking)")
     print("  export ANTHROPIC_API_KEY='...'     # Paid (for benchmarking)")
     print("\nFree tier limits:")
+    print("  - Groq Llama 3.3 70B: 30 requests/minute (FASTEST)")
     print("  - Gemini 1.5 Flash: 15 requests/minute")
     print("  - Gemini 1.5 Pro: 2 requests/minute")
 

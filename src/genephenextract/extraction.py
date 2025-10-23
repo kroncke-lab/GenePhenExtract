@@ -23,6 +23,11 @@ try:  # pragma: no cover - optional dependency
 except ImportError:  # pragma: no cover - optional dependency
     openai = None  # type: ignore
 
+try:  # pragma: no cover - optional dependency
+    from groq import Groq
+except ImportError:  # pragma: no cover - optional dependency
+    Groq = None  # type: ignore
+
 from .models import ExtractionResult, PhenotypeObservation
 
 logger = logging.getLogger(__name__)
@@ -490,6 +495,87 @@ Extract:
 Return ONLY valid JSON matching the schema."""
 
 
+class GroqExtractor(BaseExtractor):
+    """Extractor using Groq's ultra-fast inference API.
+
+    Groq provides extremely fast inference with generous free tier limits.
+    Uses OpenAI-compatible API with models like Llama 3.3 70B, Mixtral, etc.
+
+    Free tier: 30 requests/minute
+    Paid tier: $0.59/1M tokens for llama-3.3-70b-versatile
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "llama-3.3-70b-versatile",
+        temperature: float = 0.0,
+    ) -> None:
+        if Groq is None:
+            msg = "groq package not installed. Install it with `pip install groq`."
+            raise ImportError(msg)
+
+        if not api_key:
+            api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            msg = "API key required. Provide via api_key parameter or GROQ_API_KEY environment variable."
+            raise ValueError(msg)
+
+        self.client = Groq(api_key=api_key)
+        self.model = model
+        self.temperature = temperature
+        logger.info("Initialized GroqExtractor with model %s", model)
+
+    def extract(self, text: str, *, pmid: str, schema_path: Optional[Path] = None) -> ExtractionResult:
+        schema = _load_schema(schema_path)
+        prompt = self._create_extraction_prompt(text, schema)
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a medical text extraction expert. Extract structured genotype-phenotype information from scientific texts.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=self.temperature,
+                response_format={"type": "json_object"},
+            )
+
+            response_text = response.choices[0].message.content
+
+            result_data = json.loads(response_text)
+            logger.debug("Successfully extracted data using Groq")
+            return _result_from_payload(result_data, pmid=pmid)
+
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse JSON from Groq response: %s", e)
+            raise ExtractorError(f"Failed to parse extraction result: {e}") from e
+        except Exception as e:
+            logger.error("Groq API error: %s", e)
+            raise ExtractorError(f"Groq extraction failed: {e}") from e
+
+    def _create_extraction_prompt(self, text: str, schema: Dict[str, Any]) -> str:
+        return f"""Extract structured information from this scientific text about genetic variants and phenotypes.
+
+Schema:
+{json.dumps(schema, indent=2)}
+
+Text:
+{text}
+
+Extract:
+1. Genetic variant (gene and mutation)
+2. All phenotypes (clinical symptoms/conditions)
+3. Carrier status if mentioned (heterozygous, homozygous, compound heterozygous)
+4. Patient demographics if mentioned (age, sex)
+5. Treatment and outcome if mentioned
+
+Return ONLY valid JSON matching the schema."""
+
+
 class RelevanceFilter:
     """Fast, cheap LLM filter to determine if an article is relevant before expensive extraction."""
 
@@ -503,7 +589,7 @@ class RelevanceFilter:
 
         Args:
             api_key: API key for the provider
-            provider: One of "openai", "anthropic", or "gemini"
+            provider: One of "openai", "anthropic", "gemini", or "groq"
             model: Model to use. Defaults to cheapest option for each provider.
         """
         self.provider = provider.lower()
@@ -538,6 +624,16 @@ class RelevanceFilter:
             genai.configure(api_key=api_key)
             self.model = model or "gemini-1.5-flash"  # Fast, cheap Gemini model
             self.client = genai.GenerativeModel(self.model)
+
+        elif self.provider == "groq":
+            if Groq is None:
+                raise ImportError("groq package not installed")
+            if not api_key:
+                api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise ValueError("Groq API key required")
+            self.client = Groq(api_key=api_key)
+            self.model = model or "llama-3.3-70b-versatile"  # Fast, free Groq model
 
         else:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -592,6 +688,21 @@ class RelevanceFilter:
                 if "```json" in content:
                     content = content.split("```json")[1].split("```")[0].strip()
                 result = json.loads(content)
+
+            elif self.provider == "groq":
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a medical literature filter. Determine if articles contain genetic variant and phenotype information.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.0,
+                    response_format={"type": "json_object"},
+                )
+                result = json.loads(response.choices[0].message.content)
 
             is_relevant = result.get("relevant", False)
             confidence = result.get("confidence", 0.5)

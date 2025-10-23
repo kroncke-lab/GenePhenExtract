@@ -15,14 +15,18 @@ GenePhenExtract automates the retrieval and interpretation of biomedical text to
 
 | Provider | Model | Cost (per 1M input tokens) | Free Tier | Best For |
 |----------|-------|---------------------------|-----------|----------|
-| **Google Gemini** | gemini-1.5-flash | $0.075 | ✅ **15 RPM free** | **START HERE** - Testing & development |
+| **Groq** | llama-3.3-70b-versatile | $0.59 | ✅ **30 RPM free** | **FASTEST** - Ultra-fast inference |
+| **Google Gemini** | gemini-1.5-flash | $0.075 | ✅ **15 RPM free** | Long context, balanced speed |
 | **Google Gemini** | gemini-1.5-pro | $1.25 | ✅ **2 RPM free** | Free tier with good accuracy |
 | OpenAI | gpt-4o-mini | $0.15 | ❌ Pay-per-use | Cost-effective for production |
 | OpenAI | gpt-4o | $2.50 | ❌ Pay-per-use | Better accuracy, moderate cost |
 | Anthropic | claude-3-5-haiku | $1.00 | ❌ Pay-per-use | Fast, balanced |
 | Anthropic | claude-3-5-sonnet | $3.00 | ❌ Pay-per-use | **Best accuracy** after benchmarking |
 
-**💡 Recommendation:** Start with Gemini's free tier for testing and initial benchmarking. Once you validate your use case, you can upgrade to paid models for better accuracy or higher throughput.
+**💡 Recommendation:**
+- **Try Groq FIRST** - Fastest free option (30 req/min), great for rapid testing
+- **Use Gemini** for long papers (huge context windows)
+- **Benchmark both** free options before paying for anything
 
 ## Key Features
 
@@ -49,7 +53,10 @@ Perfect for:
 # Basic installation (required)
 pip install -e .
 
-# Install with FREE Google Gemini (RECOMMENDED to start)
+# Install with FREE Groq (FASTEST, recommended to start)
+pip install -e ".[groq]"
+
+# Or install with FREE Google Gemini (best for long papers)
 pip install -e ".[google]"
 
 # Optional: Install other LLM providers for benchmarking
@@ -65,23 +72,56 @@ pip install -e ".[test]"
 
 ### Get Your FREE API Key
 
-**Option 1: Google Gemini (FREE tier - recommended)**
+**Option 1: Groq (FREE tier - FASTEST)**
+1. Go to [Groq Console](https://console.groq.com/)
+2. Sign up and get your API key
+3. Export it: `export GROQ_API_KEY='your-key-here'`
+4. Free tier: 30 requests/minute (most generous free tier!)
+
+**Option 2: Google Gemini (FREE tier - best for long papers)**
 1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
 2. Click "Get API Key" and create a new key
 3. Export it: `export GOOGLE_API_KEY='your-key-here'`
 4. Free tier: 15 requests/minute for gemini-1.5-flash, 2 requests/minute for gemini-1.5-pro
 
-**Option 2: OpenAI (Paid)**
+**Option 3: OpenAI (Paid)**
 - Get key from [OpenAI Platform](https://platform.openai.com/api-keys)
 - Export: `export OPENAI_API_KEY='your-key-here'`
 
-**Option 3: Anthropic Claude (Paid)**
+**Option 4: Anthropic Claude (Paid)**
 - Get key from [Anthropic Console](https://console.anthropic.com/)
 - Export: `export ANTHROPIC_API_KEY='your-key-here'`
 
-### Quick Start: FREE Tier Example
+### Quick Start: FREE Tier Examples
 
-**🆓 Extract genotype-phenotype data using FREE Google Gemini:**
+**🚀 Option A: Use Groq (FASTEST free option - 30 req/min):**
+
+```python
+import os
+from genephenextract import PubMedClient, GroqExtractor
+
+# Initialize FREE Groq extractor (ultra-fast!)
+api_key = os.getenv("GROQ_API_KEY")
+extractor = GroqExtractor(api_key=api_key, model="llama-3.3-70b-versatile")
+
+# Search PubMed
+client = PubMedClient()
+pmids = client.search("KCNH2 AND long QT syndrome", retmax=10)
+
+print(f"Found {len(pmids)} papers")
+
+# Extract from each paper (very fast with Groq!)
+for pmid in pmids[:3]:
+    text, source = client.fetch_text(pmid, prefer_full_text=True)
+    result = extractor.extract(text, pmid=pmid)
+
+    if result.variant and result.phenotypes:
+        print(f"\n✓ PMID {pmid}:")
+        print(f"  Variant: {result.variant}")
+        print(f"  Phenotypes: {[p.phenotype for p in result.phenotypes[:3]]}")
+```
+
+**📚 Option B: Use Google Gemini (best for long papers with huge context):**
 
 GenePhenExtract supports **two extraction methods** depending on how papers report data:
 
