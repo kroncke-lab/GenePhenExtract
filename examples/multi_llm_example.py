@@ -3,10 +3,13 @@
 Example script demonstrating multi-LLM support and cost optimization.
 
 This script shows:
-1. Using different LLM providers
-2. Two-stage extraction with filtering
-3. Cost tracking and comparison
-4. PDF integration
+1. Using FREE Google Gemini tier (recommended to start)
+2. Comparing different LLM providers (after you have API keys)
+3. Two-stage extraction with filtering
+4. Cost tracking and comparison
+5. PDF integration
+
+RECOMMENDED: Start with Example 1 using FREE Gemini tier!
 """
 
 import json
@@ -27,7 +30,7 @@ from genephenextract import (
 
 
 def example_1_basic_extractors():
-    """Example 1: Compare different LLM extractors."""
+    """Example 1: Compare different LLM extractors (FREE tier first!)."""
     print("=" * 60)
     print("Example 1: Basic Extractor Comparison")
     print("=" * 60)
@@ -38,22 +41,32 @@ def example_1_basic_extractors():
 
     client = PubMedClient()
 
-    # Test with different extractors
+    # Test with different extractors - FREE tier first!
     extractors = {
         "Mock (free, instant)": MockExtractor(),
     }
 
-    # Add real extractors if API keys are available
-    if os.getenv("OPENAI_API_KEY"):
-        extractors["OpenAI GPT-4o-mini ($)"] = OpenAIExtractor(model="gpt-4o-mini")
-
-    if os.getenv("ANTHROPIC_API_KEY"):
-        extractors["Claude 3.5 Sonnet ($$$)"] = ClaudeExtractor(
-            model="claude-3-5-sonnet-20241022"
+    # Add FREE Gemini if API key is available (RECOMMENDED TO START)
+    if os.getenv("GOOGLE_API_KEY"):
+        extractors["Gemini 1.5 Flash (FREE tier - 15 RPM)"] = GeminiExtractor(
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            model="gemini-1.5-flash"
+        )
+        extractors["Gemini 1.5 Pro (FREE tier - 2 RPM)"] = GeminiExtractor(
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            model="gemini-1.5-pro"
         )
 
-    if os.getenv("GOOGLE_API_KEY"):
-        extractors["Gemini 1.5 Flash ($)"] = GeminiExtractor(model="gemini-1.5-flash")
+    # Add PAID extractors only if you want to benchmark
+    if os.getenv("OPENAI_API_KEY"):
+        extractors["OpenAI GPT-4o-mini ($0.15/1M tokens)"] = OpenAIExtractor(
+            model="gpt-4o-mini"
+        )
+
+    if os.getenv("ANTHROPIC_API_KEY"):
+        extractors["Claude 3.5 Sonnet ($3.00/1M tokens)"] = ClaudeExtractor(
+            model="claude-3-5-sonnet-20241022"
+        )
 
     for name, extractor in extractors.items():
         print(f"\n--- Using {name} ---")
@@ -68,24 +81,36 @@ def example_1_basic_extractors():
 
 
 def example_2_cost_optimization():
-    """Example 2: Two-stage extraction for cost savings."""
+    """Example 2: Two-stage extraction for cost savings (FREE tier version)."""
     print("\n" + "=" * 60)
-    print("Example 2: Cost Optimization with Filtering")
+    print("Example 2: Cost Optimization with Filtering (FREE tier)")
     print("=" * 60)
 
-    # Skip if no API keys
-    if not os.getenv("OPENAI_API_KEY") or not os.getenv("ANTHROPIC_API_KEY"):
-        print("Skipping: requires OPENAI_API_KEY and ANTHROPIC_API_KEY")
+    # Skip if no Google API key
+    if not os.getenv("GOOGLE_API_KEY"):
+        print("Skipping: requires GOOGLE_API_KEY (free tier available!)")
+        print("Get your free key at: https://makersuite.google.com/app/apikey")
         return
 
     query = "genetics"  # Broad query will return many irrelevant articles
     max_results = 20
 
-    # Cheap filter
-    relevance_filter = RelevanceFilter(provider="openai", model="gpt-4o-mini")
+    # Stage 1: FREE Gemini filter
+    relevance_filter = RelevanceFilter(provider="google", model="gemini-1.5-flash")
 
-    # Expensive extractor
-    expensive_extractor = ClaudeExtractor(model="claude-3-5-sonnet-20241022")
+    # Stage 2: Better model for extraction (still free tier!)
+    # OR use a paid model after benchmarking
+    if os.getenv("ANTHROPIC_API_KEY"):
+        # Use Claude if you've benchmarked and want best accuracy
+        expensive_extractor = ClaudeExtractor(model="claude-3-5-sonnet-20241022")
+        stage_2_desc = "claude-3-5-sonnet (paid)"
+    else:
+        # Use better Gemini model (still free tier)
+        expensive_extractor = GeminiExtractor(
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            model="gemini-1.5-pro"
+        )
+        stage_2_desc = "gemini-1.5-pro (FREE tier)"
 
     # Combine
     multi_stage = MultiStageExtractor(
@@ -95,8 +120,8 @@ def example_2_cost_optimization():
     client = PubMedClient()
 
     print(f"\nProcessing {max_results} articles with two-stage extraction...")
-    print("Stage 1: Cheap filter (gpt-4o-mini)")
-    print("Stage 2: Expensive extraction (claude-3-5-sonnet) if relevant")
+    print("Stage 1: FREE filter (gemini-1.5-flash)")
+    print(f"Stage 2: Extraction ({stage_2_desc}) if relevant")
 
     with ExtractionPipeline(pubmed_client=client, extractor=multi_stage) as pipeline:
         results = pipeline.run(PipelineInput(query=query, max_results=max_results))
@@ -272,10 +297,15 @@ def example_5_batch_with_resume():
 if __name__ == "__main__":
     print("GenePhenExtract Multi-LLM Examples")
     print("=" * 60)
+    print("\n🆓 RECOMMENDED: Start with FREE Google Gemini tier!")
+    print("Get your free API key at: https://makersuite.google.com/app/apikey")
     print("\nSet environment variables for API keys:")
-    print("  export OPENAI_API_KEY='...'")
-    print("  export ANTHROPIC_API_KEY='...'")
-    print("  export GOOGLE_API_KEY='...'")
+    print("  export GOOGLE_API_KEY='...'        # FREE tier (recommended to start)")
+    print("  export OPENAI_API_KEY='...'        # Paid (for benchmarking)")
+    print("  export ANTHROPIC_API_KEY='...'     # Paid (for benchmarking)")
+    print("\nFree tier limits:")
+    print("  - Gemini 1.5 Flash: 15 requests/minute")
+    print("  - Gemini 1.5 Pro: 2 requests/minute")
 
     # Run examples
     example_1_basic_extractors()
@@ -286,3 +316,7 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 60)
     print("Examples complete!")
+    print("\n💡 Next steps:")
+    print("1. Try with free Gemini tier on your data")
+    print("2. Benchmark extraction quality")
+    print("3. If needed, upgrade to paid models for better accuracy")
