@@ -276,7 +276,11 @@ def extract_gene_data(
             if not details:
                 continue
 
-            text = details[0].get("abstract", "")
+            article_details = details.get(pmid)
+            if not article_details:
+                continue
+
+            text = article_details.get("abstract", "")
             if not text:
                 continue
 
