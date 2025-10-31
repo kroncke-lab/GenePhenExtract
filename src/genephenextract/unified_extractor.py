@@ -262,7 +262,7 @@ def extract_gene_data(
         start, end = date_range
         query += f" AND {start}:{end}[PDAT]"
 
-    pmids = pubmed.search(query, max_results=max_papers)
+    pmids = pubmed.search(query, retmax=max_papers)
 
     print(f"Found {len(pmids)} papers for {gene}")
 
