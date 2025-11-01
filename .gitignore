@@ -22,6 +22,7 @@ dist/
 htmlcov/
 .coverage*
 *.cover
+.pytest_cache/
 
 # Misc
 .DS_Store
