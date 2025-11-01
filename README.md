@@ -8,7 +8,9 @@ This repository provides a focused pipeline for gathering structured publication
 - Retrieve PubMed metadata including PubMed ID, first author, publication year, and journal name.
 - Flag articles that likely contain patient-level information using simple keyword heuristics.
 - Detect whether an article includes a PubMed Central XML download.
-- Export the collected records as JSON, CSV, or SQLite.
+- **Extract downloadable URLs** (PubMed page, PMC full-text, PMC PDF, DOI/publisher links).
+- Export the collected records as JSON, CSV, SQLite, or **URLs list** for batch downloading.
+- **Automated file renaming and organization** - rename downloaded PDFs/documents to standardized format.
 - Clear logging to trace each stage of the collection workflow.
 
 ## Installation
@@ -81,8 +83,115 @@ The collected metadata includes:
 - **journal**: Journal name
 - **xml_available**: Boolean indicating if PMC XML download is available
 - **patient_level_evidence**: Boolean indicating if article likely contains patient-level data
+- **pmcid**: PubMed Central ID (if available)
+- **doi**: Digital Object Identifier (if available)
+- **pubmed_url**: Link to PubMed article page
+- **pmc_url**: Link to PMC full-text HTML (if available)
+- **pmc_pdf_url**: Direct link to PMC PDF download (if available)
+- **doi_url**: Link to publisher via DOI (if available)
 
 The script writes the collected metadata to the specified output path. JSON and CSV outputs are human-readable, while the SQLite option creates a queryable `articles` table.
+
+### Extracting Downloadable URLs
+
+Use the `--format urls` option to generate a text file containing all downloadable URLs for the collected articles:
+
+```bash
+python collect_literature.py BRCA1 --format urls --output brca1_urls.txt
+```
+
+This creates a formatted text file with:
+- PubMed article pages (always available)
+- PMC full-text HTML links (when available)
+- PMC PDF download links (when available)
+- DOI/publisher links (when available)
+
+Each URL is annotated with the article's PMID, title, author, year, and journal for easy reference. You can:
+- Click URLs individually for manual download
+- Use with download tools like `wget` or `curl` for batch downloading
+- Import into reference managers
+
+**Example URL output:**
+```
+# PMID: 12345678
+# Title: Example Article Title
+# Author: Smith J (2023) - Nature Genetics
+https://pubmed.ncbi.nlm.nih.gov/12345678/  # PubMed page
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8765432/  # PMC full-text HTML
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8765432/pdf/  # PMC PDF
+https://doi.org/10.1038/s41588-023-01234-5  # DOI (publisher link)
+```
+
+## Automated File Renaming and Organization
+
+After downloading literature files (PDFs, Word docs, etc.), use the `rename_downloads.py` script to automatically rename and organize them based on metadata.
+
+### Usage
+
+```bash
+python rename_downloads.py GENE_SYMBOL DOWNLOAD_DIR METADATA_FILE [OPTIONS]
+```
+
+**Required arguments:**
+- `GENE_SYMBOL`: Gene symbol for organizing files into subfolders
+- `DOWNLOAD_DIR`: Directory containing downloaded files
+- `METADATA_FILE`: Path to metadata file (JSON or SQLite format)
+
+**Optional arguments:**
+- `--output-dir PATH`: Base directory for organized files (default: `organized_literature`)
+- `--metadata-format {json,sqlite}`: Format of metadata file (default: `json`)
+- `--dry-run`: Preview changes without actually moving files
+- `--log-file PATH`: Write detailed processing log to file
+- `--log-level LEVEL`: Logging verbosity (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+
+### Example Workflow
+
+1. **Collect metadata and URLs:**
+```bash
+# Get metadata
+python collect_literature.py BRCA1 --format json --output brca1_metadata.json
+
+# Get downloadable URLs
+python collect_literature.py BRCA1 --format urls --output brca1_urls.txt
+```
+
+2. **Download files manually or with a download tool:**
+```bash
+# Manual: Click URLs from brca1_urls.txt
+# OR use wget to download PMC PDFs:
+grep "PMC PDF" brca1_urls.txt | awk '{print $1}' | wget -i - -P downloads/
+```
+
+3. **Rename and organize downloaded files:**
+```bash
+python rename_downloads.py BRCA1 downloads/ brca1_metadata.json \
+  --output-dir organized_literature \
+  --log-file rename_log.txt
+```
+
+### File Naming Convention
+
+Files are renamed to the format: `PMID_LastName_Year_Journal.ext`
+
+**Example:**
+- Original: `PMC8765432.pdf` or `download (3).pdf`
+- Renamed: `12345678_Smith_2023_Nature_Genetics.pdf`
+
+### How File Matching Works
+
+The script attempts to match downloaded files to metadata records by:
+1. Looking for PMID in the filename (e.g., `PMID12345678.pdf`, `12345678.pdf`)
+2. Checking against the metadata database
+3. Extracting author, year, and journal from metadata
+4. Generating standardized filename
+5. Moving file to gene-specific subfolder
+
+### Tips for Successful File Matching
+
+- When downloading from PMC, try to keep the PMID in the filename
+- If your browser names files generically (e.g., `download.pdf`), rename them to include the PMID first
+- Use `--dry-run` to preview changes before committing
+- Check the log file to identify any unmatched files
 
 ## Features in Detail
 
@@ -148,6 +257,12 @@ for article in articles:
     print(f"{article.pmid}: {article.title}")
     print(f"  Author: {article.first_author}")
     print(f"  Year: {article.publication_year}")
+    print(f"  Journal: {article.journal}")
     print(f"  Patient data: {article.patient_level_evidence}")
     print(f"  XML available: {article.xml_available}")
+    print(f"  PubMed URL: {article.pubmed_url}")
+    if article.pmc_pdf_url:
+        print(f"  PMC PDF: {article.pmc_pdf_url}")
+    if article.doi_url:
+        print(f"  DOI: {article.doi_url}")
 ```

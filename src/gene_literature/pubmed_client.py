@@ -34,6 +34,12 @@ class ArticleMetadata:
     journal: Optional[str]
     xml_available: bool
     patient_level_evidence: bool
+    pmcid: Optional[str] = None
+    doi: Optional[str] = None
+    pubmed_url: Optional[str] = None
+    pmc_url: Optional[str] = None
+    doi_url: Optional[str] = None
+    pmc_pdf_url: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Return the metadata as a plain dictionary."""
@@ -110,8 +116,13 @@ class PubMedClient:
             first_author = _extract_first_author(article)
             publication_year = _extract_publication_year(article)
             journal = _find_text(article, ".//Journal/Title")
-            xml_available = _has_pmcid(article)
+            pmcid = _extract_pmcid(article)
+            doi = _extract_doi(article)
+            xml_available = pmcid is not None
             patient_level_evidence = _contains_patient_level_terms(title, abstract)
+
+            # Build download URLs
+            urls = _build_urls(pmid, pmcid, doi)
 
             records.append(
                 ArticleMetadata(
@@ -123,6 +134,12 @@ class PubMedClient:
                     journal=journal,
                     xml_available=xml_available,
                     patient_level_evidence=patient_level_evidence,
+                    pmcid=pmcid,
+                    doi=doi,
+                    pubmed_url=urls["pubmed_url"],
+                    pmc_url=urls["pmc_url"],
+                    doi_url=urls["doi_url"],
+                    pmc_pdf_url=urls["pmc_pdf_url"],
                 )
             )
 
@@ -235,3 +252,45 @@ def _has_pmcid(article: ET.Element) -> bool:
         if article_id.get("IdType") == "pmcid" and (article_id.text or "").strip():
             return True
     return False
+
+
+def _extract_pmcid(article: ET.Element) -> Optional[str]:
+    """Extract the PubMed Central ID if available."""
+
+    for article_id in article.findall(".//ArticleIdList/ArticleId"):
+        if article_id.get("IdType") == "pmcid":
+            pmcid = (article_id.text or "").strip()
+            if pmcid:
+                return pmcid
+    return None
+
+
+def _extract_doi(article: ET.Element) -> Optional[str]:
+    """Extract the DOI if available."""
+
+    for article_id in article.findall(".//ArticleIdList/ArticleId"):
+        if article_id.get("IdType") == "doi":
+            doi = (article_id.text or "").strip()
+            if doi:
+                return doi
+    return None
+
+
+def _build_urls(pmid: str, pmcid: Optional[str], doi: Optional[str]) -> dict:
+    """Build various download URLs for the article."""
+
+    urls = {
+        "pubmed_url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        "pmc_url": None,
+        "doi_url": None,
+        "pmc_pdf_url": None,
+    }
+
+    if pmcid:
+        urls["pmc_url"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+        urls["pmc_pdf_url"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
+
+    if doi:
+        urls["doi_url"] = f"https://doi.org/{doi}"
+
+    return urls

@@ -31,9 +31,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--format",
-        choices=["json", "csv", "sqlite"],
+        choices=["json", "csv", "sqlite", "urls"],
         default="json",
-        help="Output format",
+        help="Output format (urls format creates a text file with downloadable URLs)",
     )
     parser.add_argument(
         "--log-level",
