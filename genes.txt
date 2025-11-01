@@ -1,6 +1,0 @@
-# List of genes to process (one per line)
-# Lines starting with # are ignored
-
-KCNH2
-SCN5A
-KCNQ1

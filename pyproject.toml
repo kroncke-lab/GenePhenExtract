@@ -3,73 +3,31 @@ requires = ["setuptools>=67", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "genephenextract"
-version = "0.1.0"
-description = "LLM-powered extraction of gene, variant, and phenotype data from PubMed literature"
+name = "gene-literature-collector"
+version = "0.2.0"
+description = "Collect and export PubMed metadata for genes of interest"
 readme = "README.md"
-authors = [{name = "Brett Kroncke", email = "brett.kroncke@vumc.org"}]
+authors = [{name = "OpenAI"}]
 license = {text = "MIT"}
 requires-python = ">=3.9"
-dependencies = [
-    "python-docx>=1.0.0",
-    "pypdf>=4.0.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
-langextract = [
-    "langextract>=0.2.0",
-]
-# LLM provider dependencies
-anthropic = [
-    "anthropic>=0.39.0",
-]
-openai = [
-    "openai>=1.0.0",
-]
-google = [
-    "google-generativeai>=0.3.0",
-]
-# All LLM providers
-all-llms = [
-    "genephenextract[anthropic,openai,google]",
-]
 test = [
     "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-benchmark>=4.0.0",
-    "pytest-mock>=3.10.0",
-    "pytest-asyncio>=0.21.0",
 ]
+
 dev = [
-    "genephenextract[test,all-llms]",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
+    "gene-literature-collector[test]",
 ]
 
 [project.scripts]
-genephenextract = "genephenextract.cli:main"
+collect-gene-literature = "collect_literature:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-genephenextract = [
-    "schema/*.json",
-]
-
-[tool.black]
-line-length = 100
-
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-markers = [
-    "integration: marks tests as integration tests (may require network access)",
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "benchmark: marks tests as benchmarks",
-]
-addopts = [
-    "--strict-markers",
-    "--tb=short",
-]
-
+addopts = ["--strict-markers", "--tb=short"]
