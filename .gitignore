@@ -29,14 +29,8 @@ htmlcov/
 
 venv/
 
-# Nextflow
-.nextflow/
-.nextflow.log*
-work/
-results/
-*.html
-*.svg
-trace.txt
-timeline.html
-report.html
-dag.dot
+# Output files
+*.json
+*.csv
+*.sqlite
+*.db
