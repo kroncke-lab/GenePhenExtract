@@ -40,6 +40,8 @@ class ArticleMetadata:
     pmc_url: Optional[str] = None
     doi_url: Optional[str] = None
     pmc_pdf_url: Optional[str] = None
+    relevance_score: Optional[float] = None
+    relevance_reasoning: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Return the metadata as a plain dictionary."""
