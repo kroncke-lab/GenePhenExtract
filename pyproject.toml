@@ -17,6 +17,10 @@ test = [
     "pytest>=7.0.0",
 ]
 
+relevance = [
+    "anthropic>=0.39.0",
+]
+
 dev = [
     "gene-literature-collector[test]",
 ]

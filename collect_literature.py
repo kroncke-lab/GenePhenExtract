@@ -10,6 +10,12 @@ from gene_literature import LiteratureCollector, PubMedClient
 from gene_literature.synonym_finder import SynonymFinder, interactive_synonym_selection
 from gene_literature.writer import write_metadata
 
+try:
+    from gene_literature.relevance_checker import RelevanceChecker
+    RELEVANCE_CHECKER_AVAILABLE = True
+except ImportError:
+    RELEVANCE_CHECKER_AVAILABLE = False
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -52,6 +58,22 @@ def parse_args() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging verbosity",
     )
+    parser.add_argument(
+        "--filter-irrelevant",
+        action="store_true",
+        help="Use LLM to filter out irrelevant papers (requires ANTHROPIC_API_KEY)",
+    )
+    parser.add_argument(
+        "--anthropic-api-key",
+        help="Anthropic API key for relevance checking (or set ANTHROPIC_API_KEY env var)",
+        default=None,
+    )
+    parser.add_argument(
+        "--min-relevance-score",
+        type=float,
+        default=0.7,
+        help="Minimum relevance score (0.0-1.0) to keep papers (default: 0.7)",
+    )
     return parser.parse_args()
 
 
@@ -91,14 +113,37 @@ def main() -> None:
             logger.error("Failed to find synonyms: %s", e)
             logger.warning("Continuing with manually provided synonyms only")
 
+    # Initialize PubMed client
     client = PubMedClient(api_key=args.api_key, email=args.email)
-    collector = LiteratureCollector(client)
+
+    # Initialize relevance checker if filtering is requested
+    relevance_checker = None
+    if args.filter_irrelevant:
+        if not RELEVANCE_CHECKER_AVAILABLE:
+            logger.error(
+                "Relevance filtering requested but anthropic package not installed. "
+                "Install with: pip install 'gene-literature-collector[relevance]'"
+            )
+            return
+        relevance_checker = RelevanceChecker(api_key=args.anthropic_api_key)
+        logger.info("Relevance filtering enabled (min_score=%.2f)", args.min_relevance_score)
+
+    # Initialize collector
+    collector = LiteratureCollector(client, relevance_checker=relevance_checker)
 
     logger.info("Collecting literature for gene: %s", args.gene)
     if all_synonyms:
         logger.info("Using %d synonyms: %s", len(all_synonyms), ", ".join(all_synonyms))
 
-    records = collector.collect(args.gene, synonyms=all_synonyms if all_synonyms else None, retmax=args.retmax)
+    # Collect papers
+    records = collector.collect(
+        args.gene,
+        synonyms=all_synonyms if all_synonyms else None,
+        retmax=args.retmax,
+        filter_irrelevant=args.filter_irrelevant,
+        min_relevance_score=args.min_relevance_score,
+    )
+
     write_metadata(records, args.output, fmt=args.format)
     logger.info("Successfully wrote %d records to %s", len(records), args.output)
 
