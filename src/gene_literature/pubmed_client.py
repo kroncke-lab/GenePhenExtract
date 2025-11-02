@@ -79,71 +79,99 @@ class PubMedClient:
         logger.debug("PubMed returned %d PMIDs", len(pmids))
         return pmids
 
-    def fetch_metadata(self, pmids: Sequence[str]) -> List[ArticleMetadata]:
-        """Fetch detailed article metadata for the provided PMIDs."""
+    def fetch_metadata(self, pmids: Sequence[str], batch_size: int = 200) -> List[ArticleMetadata]:
+        """Fetch detailed article metadata for the provided PMIDs.
+
+        Args:
+            pmids: Sequence of PubMed IDs to fetch metadata for
+            batch_size: Number of PMIDs to fetch per request (default 200)
+                       to avoid URI length limits
+        """
 
         if not pmids:
             return []
 
         logger.info("Fetching metadata for %d PMIDs", len(pmids))
-        xml_payload = self._request(
-            "efetch.fcgi",
-            {
-                "db": "pubmed",
-                "id": ",".join(pmids),
-                "retmode": "xml",
-            },
-        )
-        try:
-            xml_root = ET.fromstring(xml_payload)
-        except ET.ParseError as exc:  # pragma: no cover - defensive
-            raise PubMedError("Unable to parse PubMed XML response") from exc
 
-        records: List[ArticleMetadata] = []
-        for article in xml_root.findall(".//PubmedArticle"):
-            pmid = _find_text(article, ".//PMID")
-            if not pmid:
-                logger.debug("Skipping article without PMID")
-                continue
+        # Process PMIDs in batches to avoid URI length limits
+        all_records: List[ArticleMetadata] = []
+        pmid_list = list(pmids)
+        total_batches = (len(pmid_list) + batch_size - 1) // batch_size
 
-            title = _find_text(article, ".//ArticleTitle")
-            abstract_parts = [
-                (element.text or "").strip()
-                for element in article.findall(".//Abstract/AbstractText")
-                if (element.text or "").strip()
-            ]
-            abstract = "\n".join(abstract_parts) if abstract_parts else None
-            first_author = _extract_first_author(article)
-            publication_year = _extract_publication_year(article)
-            journal = _find_text(article, ".//Journal/Title")
-            pmcid = _extract_pmcid(article)
-            doi = _extract_doi(article)
-            xml_available = pmcid is not None
-            patient_level_evidence = _contains_patient_level_terms(title, abstract)
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(pmid_list))
+            batch_pmids = pmid_list[start_idx:end_idx]
 
-            # Build download URLs
-            urls = _build_urls(pmid, pmcid, doi)
-
-            records.append(
-                ArticleMetadata(
-                    pmid=pmid,
-                    title=title,
-                    abstract=abstract,
-                    first_author=first_author,
-                    publication_year=publication_year,
-                    journal=journal,
-                    xml_available=xml_available,
-                    patient_level_evidence=patient_level_evidence,
-                    pmcid=pmcid,
-                    doi=doi,
-                    pubmed_url=urls["pubmed_url"],
-                    pmc_url=urls["pmc_url"],
-                    doi_url=urls["doi_url"],
-                    pmc_pdf_url=urls["pmc_pdf_url"],
-                )
+            logger.info(
+                "Fetching batch %d/%d (%d PMIDs)",
+                batch_num + 1,
+                total_batches,
+                len(batch_pmids)
             )
 
-        return records
+            xml_payload = self._request(
+                "efetch.fcgi",
+                {
+                    "db": "pubmed",
+                    "id": ",".join(batch_pmids),
+                    "retmode": "xml",
+                },
+            )
+            try:
+                xml_root = ET.fromstring(xml_payload)
+            except ET.ParseError as exc:  # pragma: no cover - defensive
+                raise PubMedError("Unable to parse PubMed XML response") from exc
+
+            for article in xml_root.findall(".//PubmedArticle"):
+                pmid = _find_text(article, ".//PMID")
+                if not pmid:
+                    logger.debug("Skipping article without PMID")
+                    continue
+
+                title = _find_text(article, ".//ArticleTitle")
+                abstract_parts = [
+                    (element.text or "").strip()
+                    for element in article.findall(".//Abstract/AbstractText")
+                    if (element.text or "").strip()
+                ]
+                abstract = "\n".join(abstract_parts) if abstract_parts else None
+                first_author = _extract_first_author(article)
+                publication_year = _extract_publication_year(article)
+                journal = _find_text(article, ".//Journal/Title")
+                pmcid = _extract_pmcid(article)
+                doi = _extract_doi(article)
+                xml_available = pmcid is not None
+                patient_level_evidence = _contains_patient_level_terms(title, abstract)
+
+                # Build download URLs
+                urls = _build_urls(pmid, pmcid, doi)
+
+                all_records.append(
+                    ArticleMetadata(
+                        pmid=pmid,
+                        title=title,
+                        abstract=abstract,
+                        first_author=first_author,
+                        publication_year=publication_year,
+                        journal=journal,
+                        xml_available=xml_available,
+                        patient_level_evidence=patient_level_evidence,
+                        pmcid=pmcid,
+                        doi=doi,
+                        pubmed_url=urls["pubmed_url"],
+                        pmc_url=urls["pmc_url"],
+                        doi_url=urls["doi_url"],
+                        pmc_pdf_url=urls["pmc_pdf_url"],
+                    )
+                )
+
+            # Be respectful of PubMed rate limits between batches
+            if batch_num < total_batches - 1:
+                time.sleep(0.34)  # ~3 requests per second (NCBI guideline)
+
+        logger.info("Successfully fetched metadata for %d articles", len(all_records))
+        return all_records
 
     # ------------------------------------------------------------------
     # Internal helpers
