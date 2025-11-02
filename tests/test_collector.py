@@ -57,6 +57,44 @@ SAMPLE_XML = """
 </PubmedArticleSet>
 """
 
+# Sample XML using IdType='pmc' (newer PubMed format)
+SAMPLE_XML_PMC_FORMAT = """
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation>
+      <PMID>67890</PMID>
+      <Article>
+        <ArticleTitle>Gene XYZ clinical study</ArticleTitle>
+        <Abstract>
+          <AbstractText>Clinical cohort study of XYZ variants.</AbstractText>
+        </Abstract>
+        <Journal>
+          <JournalIssue>
+            <PubDate>
+              <Year>2023</Year>
+            </PubDate>
+          </JournalIssue>
+          <Title>Medical Genetics</Title>
+        </Journal>
+        <AuthorList>
+          <Author>
+            <LastName>Smith</LastName>
+            <ForeName>John</ForeName>
+          </Author>
+        </AuthorList>
+      </Article>
+    </MedlineCitation>
+    <PubmedData>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">67890</ArticleId>
+        <ArticleId IdType="pmc">PMC123456</ArticleId>
+        <ArticleId IdType="doi">10.1234/example.doi</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+</PubmedArticleSet>
+"""
+
 
 @pytest.mark.parametrize(
     "gene,synonyms,expected",
@@ -98,3 +136,18 @@ def test_collect_and_write_metadata(tmp_path: Path):
 def test_build_gene_query_requires_term():
     with pytest.raises(ValueError):
         build_gene_query("", [])
+
+
+def test_pmcid_detection_with_pmc_idtype(tmp_path: Path):
+    """Test that PMCID detection works with IdType='pmc' (newer PubMed format)."""
+    client = DummyPubMedClient(["67890"], SAMPLE_XML_PMC_FORMAT)
+    collector = LiteratureCollector(client)
+    results = collector.collect("XYZ")
+    assert len(results) == 1
+    record = results[0]
+    assert record.pmid == "67890"
+    assert record.pmcid == "PMC123456"
+    assert record.xml_available is True
+    assert record.doi == "10.1234/example.doi"
+    assert record.pmc_url == "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/"
+    assert record.pmc_pdf_url == "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/pdf/"

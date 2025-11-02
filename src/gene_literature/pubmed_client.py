@@ -274,19 +274,41 @@ def _contains_patient_level_terms(title: Optional[str], abstract: Optional[str])
 
 
 def _has_pmcid(article: ET.Element) -> bool:
-    """Return True if the article includes a PubMed Central identifier."""
+    """Return True if the article includes a PubMed Central identifier.
+
+    Checks for multiple possible IdType values and attribute names:
+    - IdType="pmc" (current PubMed standard)
+    - IdType="pmcid" (older format)
+    - idtype (lowercase attribute, for compatibility)
+    """
 
     for article_id in article.findall(".//ArticleIdList/ArticleId"):
-        if article_id.get("IdType") == "pmcid" and (article_id.text or "").strip():
+        # Check both capitalized and lowercase attribute names
+        id_type = article_id.get("IdType") or article_id.get("idtype") or ""
+        id_type_lower = id_type.lower()
+
+        # Accept both "pmc" and "pmcid" as valid PMC identifiers
+        if id_type_lower in ("pmc", "pmcid") and (article_id.text or "").strip():
             return True
     return False
 
 
 def _extract_pmcid(article: ET.Element) -> Optional[str]:
-    """Extract the PubMed Central ID if available."""
+    """Extract the PubMed Central ID if available.
+
+    Checks for multiple possible IdType values and attribute names:
+    - IdType="pmc" (current PubMed standard)
+    - IdType="pmcid" (older format)
+    - idtype (lowercase attribute, for compatibility)
+    """
 
     for article_id in article.findall(".//ArticleIdList/ArticleId"):
-        if article_id.get("IdType") == "pmcid":
+        # Check both capitalized and lowercase attribute names
+        id_type = article_id.get("IdType") or article_id.get("idtype") or ""
+        id_type_lower = id_type.lower()
+
+        # Accept both "pmc" and "pmcid" as valid PMC identifiers
+        if id_type_lower in ("pmc", "pmcid"):
             pmcid = (article_id.text or "").strip()
             if pmcid:
                 return pmcid
@@ -294,10 +316,16 @@ def _extract_pmcid(article: ET.Element) -> Optional[str]:
 
 
 def _extract_doi(article: ET.Element) -> Optional[str]:
-    """Extract the DOI if available."""
+    """Extract the DOI if available.
+
+    Checks both capitalized and lowercase IdType attribute names.
+    """
 
     for article_id in article.findall(".//ArticleIdList/ArticleId"):
-        if article_id.get("IdType") == "doi":
+        # Check both capitalized and lowercase attribute names
+        id_type = article_id.get("IdType") or article_id.get("idtype") or ""
+
+        if id_type.lower() == "doi":
             doi = (article_id.text or "").strip()
             if doi:
                 return doi
