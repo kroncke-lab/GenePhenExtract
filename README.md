@@ -4,6 +4,7 @@ This repository provides a focused pipeline for gathering structured publication
 
 ## Features
 
+- **Automatic synonym discovery** - Query NCBI Gene database to find gene aliases and synonyms with interactive selection.
 - Build reproducible PubMed queries for a gene and its synonyms.
 - Retrieve PubMed metadata including PubMed ID, first author, publication year, and journal name.
 - Flag articles that likely contain patient-level information using simple keyword heuristics.
@@ -38,6 +39,8 @@ python collect_literature.py BRCA1 --synonym "Breast cancer 1" --format csv --ou
 
 **Optional:**
 - `--synonym`: Gene synonym (can be provided multiple times)
+- `--auto-synonyms`: Automatically find gene synonyms using NCBI Gene database and prompt for selection
+- `--include-other-designations`: Include verbose 'other designations' when finding synonyms (use with --auto-synonyms)
 - `--retmax`: Maximum number of PubMed results to retrieve (default: 100)
 - `--email`: Contact email for PubMed API requests (recommended for compliance)
 - `--api-key`: NCBI API key for higher rate limits
@@ -71,6 +74,73 @@ python collect_literature.py TP53 \
   --format sqlite \
   --output tp53_articles.db
 ```
+
+### Automatic Synonym Discovery
+
+The tool can automatically discover gene synonyms from the NCBI Gene database and let you interactively select which ones to include in your PubMed search. This helps ensure comprehensive literature coverage without having to manually research all gene aliases.
+
+**Basic auto-synonym usage:**
+```bash
+python collect_literature.py BRCA1 --auto-synonyms
+```
+
+When you use `--auto-synonyms`, the tool will:
+1. Query the NCBI Gene database for the specified gene
+2. Retrieve official gene symbols, aliases, and other designations
+3. Display an interactive prompt showing all found synonyms grouped by type
+4. Let you select which synonyms to include in the search
+
+**Example interactive prompt:**
+```
+============================================================
+Found 8 potential synonyms for 'BRCA1':
+============================================================
+
+Official Gene Symbol:
+  [1] BRCA1
+  → Automatically included in search
+
+Gene Aliases (6 found):
+  [1] BRCAI
+  [2] BRCC1
+  [3] FANCS
+  [4] IRIS
+  [5] PNCA4
+  [6] RNF53
+
+Select synonyms to include in PubMed search:
+  - Enter numbers separated by commas (e.g., '1,2,3')
+  - Enter 'all' to include all
+  - Enter 'aliases' to include all aliases only
+  - Enter 'none' to skip synonym expansion
+  - Press Enter to accept automatically selected terms
+
+Your selection: aliases
+```
+
+**Include verbose designations:**
+```bash
+python collect_literature.py SCN5A --auto-synonyms --include-other-designations
+```
+
+The `--include-other-designations` flag includes longer, more descriptive gene names (e.g., "sodium voltage-gated channel alpha subunit 5"). These can be very comprehensive but may be verbose.
+
+**Combine auto-synonyms with manual ones:**
+```bash
+python collect_literature.py TP53 \
+  --auto-synonyms \
+  --synonym "p53" \
+  --synonym "tumor suppressor p53" \
+  --email your.email@example.com
+```
+
+Manual synonyms provided via `--synonym` are automatically included along with any you select from the auto-discovery process.
+
+**Tips for using auto-synonyms:**
+- Use `--email` to comply with NCBI API usage guidelines
+- Start with basic `--auto-synonyms` before adding `--include-other-designations`
+- Review the found synonyms carefully - not all aliases may be relevant for your search
+- The 'aliases' option typically gives the best balance of coverage and specificity
 
 ### Output Format
 
@@ -228,12 +298,15 @@ src/gene_literature/
 ├── __init__.py          # Package exports
 ├── collector.py         # High-level orchestration and query building
 ├── pubmed_client.py     # PubMed API client and metadata extraction
+├── synonym_finder.py    # Automatic gene synonym discovery from NCBI Gene
 └── writer.py            # Output formatting (JSON, CSV, SQLite)
 ```
 
 ## Programmatic Usage
 
 You can also use the library programmatically in your Python code:
+
+### Basic Literature Collection
 
 ```python
 from gene_literature import LiteratureCollector, PubMedClient
@@ -265,4 +338,40 @@ for article in articles:
         print(f"  PMC PDF: {article.pmc_pdf_url}")
     if article.doi_url:
         print(f"  DOI: {article.doi_url}")
+```
+
+### Automatic Synonym Discovery
+
+```python
+from gene_literature import SynonymFinder, interactive_synonym_selection
+
+# Initialize synonym finder
+finder = SynonymFinder(
+    email="your.email@example.com",  # Recommended
+    api_key="YOUR_API_KEY"  # Optional
+)
+
+# Find synonyms for a gene
+synonyms = finder.find_gene_synonyms(
+    gene="BRCA1",
+    include_other_designations=False  # Set to True for verbose names
+)
+
+# Display found synonyms
+print(f"Found {len(synonyms)} synonyms:")
+for syn in synonyms:
+    print(f"  - {syn.term} (source: {syn.source})")
+
+# Interactive selection (for CLI scripts)
+selected = interactive_synonym_selection("BRCA1", synonyms)
+
+# Or programmatically select synonyms
+selected_terms = [syn.term for syn in synonyms if syn.source in ["official_symbol", "alias"]]
+
+# Use selected synonyms in literature collection
+articles = collector.collect(
+    gene="BRCA1",
+    synonyms=selected_terms,
+    retmax=100
+)
 ```
