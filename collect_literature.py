@@ -89,7 +89,13 @@ def main() -> None:
     # Auto-discover synonyms if requested
     if args.auto_synonyms:
         logger.info("Auto-discovering synonyms for gene: %s", args.gene)
-        synonym_finder = SynonymFinder(email=args.email, api_key=args.api_key)
+        if args.anthropic_api_key:
+            logger.info("LLM-based synonym relevance checking enabled")
+        synonym_finder = SynonymFinder(
+            email=args.email,
+            api_key=args.api_key,
+            anthropic_api_key=args.anthropic_api_key,
+        )
 
         try:
             found_synonyms = synonym_finder.find_gene_synonyms(

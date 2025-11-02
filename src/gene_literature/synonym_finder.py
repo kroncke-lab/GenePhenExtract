@@ -3,8 +3,9 @@ Automatic synonym discovery for genes using NCBI Gene database.
 
 This module provides functionality to:
 1. Query NCBI Gene database for official gene synonyms and aliases
-2. Present synonyms to users for interactive selection
-3. Return selected synonyms for use in PubMed searches
+2. Use LLM to assess relevance of synonyms
+3. Present synonyms to users for interactive selection
+4. Return selected synonyms for use in PubMed searches
 """
 
 import logging
@@ -18,6 +19,15 @@ from requests.adapters import HTTPAdapter, Retry
 
 logger = logging.getLogger(__name__)
 
+try:
+    from gene_literature.synonym_relevance_checker import (
+        SynonymRelevanceChecker,
+        SynonymRelevance,
+    )
+    RELEVANCE_CHECKER_AVAILABLE = True
+except ImportError:
+    RELEVANCE_CHECKER_AVAILABLE = False
+
 
 class SynonymFinderError(RuntimeError):
     """Raised when synonym lookup fails."""
@@ -30,6 +40,9 @@ class GeneSynonym:
     term: str
     source: str  # e.g., "official_symbol", "alias", "other_designations"
     gene_id: Optional[int] = None
+    is_relevant: Optional[bool] = None  # LLM-assessed relevance
+    relevance_confidence: Optional[float] = None  # 0.0 to 1.0
+    relevance_reasoning: Optional[str] = None
 
 
 class SynonymFinder:
@@ -47,6 +60,7 @@ class SynonymFinder:
         email: Optional[str] = None,
         api_key: Optional[str] = None,
         retry_attempts: int = 3,
+        anthropic_api_key: Optional[str] = None,
     ):
         """
         Initialize the SynonymFinder.
@@ -55,10 +69,12 @@ class SynonymFinder:
             email: Email address for NCBI API (recommended)
             api_key: NCBI API key for higher rate limits (optional)
             retry_attempts: Number of retry attempts for failed requests
+            anthropic_api_key: Anthropic API key for LLM-based relevance checking (optional)
         """
         self.email = email
         self.api_key = api_key
         self.retry_attempts = retry_attempts
+        self.anthropic_api_key = anthropic_api_key
 
         # Configure session with retry logic
         self.session = requests.Session()
@@ -103,7 +119,74 @@ class SynonymFinder:
         synonyms = self._fetch_gene_summary(gene_id, include_other_designations)
 
         logger.info("Found %d synonyms for '%s'", len(synonyms), gene)
+
+        # Step 3: Check relevance with LLM if API key provided
+        if self.anthropic_api_key and RELEVANCE_CHECKER_AVAILABLE:
+            logger.info("Checking synonym relevance with LLM...")
+            synonyms = self._check_synonyms_relevance(gene, synonyms)
+        elif self.anthropic_api_key and not RELEVANCE_CHECKER_AVAILABLE:
+            logger.warning(
+                "Anthropic API key provided but anthropic package not installed. "
+                "Install with: pip install anthropic"
+            )
+
         return synonyms
+
+    def _check_synonyms_relevance(
+        self,
+        gene: str,
+        synonyms: List[GeneSynonym],
+    ) -> List[GeneSynonym]:
+        """
+        Check relevance of synonyms using LLM.
+
+        Args:
+            gene: Primary gene name
+            synonyms: List of synonym candidates
+
+        Returns:
+            List of GeneSynonym objects with relevance information added
+        """
+        checker = SynonymRelevanceChecker(api_key=self.anthropic_api_key)
+
+        # Check each synonym
+        for synonym in synonyms:
+            relevance = checker.check_synonym_relevance(
+                gene_name=gene,
+                synonym=synonym.term,
+                source=synonym.source,
+            )
+
+            # Update synonym with relevance info
+            synonym.is_relevant = relevance.is_relevant
+            synonym.relevance_confidence = relevance.confidence
+            synonym.relevance_reasoning = relevance.reasoning
+
+            logger.debug(
+                "Synonym '%s': %s (confidence: %.2f) - %s",
+                synonym.term,
+                "RELEVANT" if relevance.is_relevant else "NOT RELEVANT",
+                relevance.confidence,
+                relevance.reasoning,
+            )
+
+        # Sort synonyms: relevant first, then by confidence
+        synonyms_sorted = sorted(
+            synonyms,
+            key=lambda s: (
+                not s.is_relevant if s.is_relevant is not None else False,
+                -(s.relevance_confidence or 0.0),
+            ),
+        )
+
+        relevant_count = sum(1 for s in synonyms if s.is_relevant)
+        logger.info(
+            "LLM assessed %d/%d synonyms as relevant",
+            relevant_count,
+            len(synonyms),
+        )
+
+        return synonyms_sorted
 
     def _search_gene(self, gene: str) -> Optional[int]:
         """
@@ -273,6 +356,9 @@ def interactive_synonym_selection(
         print(f"\nNo synonyms found for '{gene}'")
         return []
 
+    # Check if any synonyms have relevance information
+    has_relevance_info = any(s.is_relevant is not None for s in synonyms)
+
     print(f"\n{'='*60}")
     print(f"Found {len(synonyms)} potential synonyms for '{gene}':")
     print(f"{'='*60}\n")
@@ -284,11 +370,19 @@ def interactive_synonym_selection(
 
     selected: Set[str] = set()
 
+    def format_synonym(syn: GeneSynonym) -> str:
+        """Format a synonym with optional relevance info."""
+        if has_relevance_info and syn.is_relevant is not None:
+            relevance_marker = "✓" if syn.is_relevant else "✗"
+            confidence_str = f"{syn.relevance_confidence:.0%}" if syn.relevance_confidence else "??"
+            return f"{syn.term} [{relevance_marker} {confidence_str}]"
+        return syn.term
+
     # Display official symbols
     if official:
         print("Official Gene Symbol:")
         for i, syn in enumerate(official, 1):
-            print(f"  [{i}] {syn.term}")
+            print(f"  [{i}] {format_synonym(syn)}")
             if auto_include_official:
                 selected.add(syn.term)
 
@@ -300,7 +394,11 @@ def interactive_synonym_selection(
     if aliases:
         print(f"Gene Aliases ({len(aliases)} found):")
         for i, syn in enumerate(aliases, 1):
-            print(f"  [{i}] {syn.term}")
+            print(f"  [{i}] {format_synonym(syn)}")
+            if has_relevance_info and syn.relevance_reasoning:
+                # Show reasoning for first few items
+                if i <= 3:
+                    print(f"      {syn.relevance_reasoning}")
         print()
 
     # Display other designations (if any)
@@ -308,9 +406,13 @@ def interactive_synonym_selection(
         print(f"Other Designations ({len(other)} found - may be verbose):")
         # Show only first 5 to avoid overwhelming user
         for i, syn in enumerate(other[:5], 1):
-            print(f"  [{i}] {syn.term}")
+            print(f"  [{i}] {format_synonym(syn)}")
         if len(other) > 5:
             print(f"  ... and {len(other) - 5} more")
+        print()
+
+    if has_relevance_info:
+        print("Legend: ✓ = LLM assessed as relevant, ✗ = not relevant")
         print()
 
     # Interactive selection
@@ -318,6 +420,8 @@ def interactive_synonym_selection(
     print("  - Enter numbers separated by commas (e.g., '1,2,3')")
     print("  - Enter 'all' to include all")
     print("  - Enter 'aliases' to include all aliases only")
+    if has_relevance_info:
+        print("  - Enter 'relevant' to include only LLM-assessed relevant synonyms")
     print("  - Enter 'none' to skip synonym expansion")
     print("  - Press Enter to accept automatically selected terms")
 
@@ -340,6 +444,10 @@ def interactive_synonym_selection(
             selected.update(syn.term for syn in official + aliases)
             break
 
+        if user_input == "relevant" and has_relevance_info:
+            selected = {syn.term for syn in synonyms if syn.is_relevant}
+            break
+
         # Parse comma-separated indices
         try:
             indices = [int(x.strip()) for x in user_input.split(",")]
@@ -357,7 +465,11 @@ def interactive_synonym_selection(
             break
 
         except ValueError:
-            print("Invalid input. Please enter numbers separated by commas, 'all', 'aliases', 'none', or press Enter")
+            valid_options = "'all', 'aliases'"
+            if has_relevance_info:
+                valid_options += ", 'relevant'"
+            valid_options += ", 'none', or press Enter"
+            print(f"Invalid input. Please enter numbers separated by commas, {valid_options}")
 
     result = sorted(selected)
 

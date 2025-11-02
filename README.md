@@ -146,6 +146,67 @@ Manual synonyms provided via `--synonym` are automatically included along with a
 - Review the found synonyms carefully - not all aliases may be relevant for your search
 - The 'aliases' option typically gives the best balance of coverage and specificity
 
+#### LLM-Based Synonym Relevance Checking (NEW!)
+
+When using `--auto-synonyms`, you can now enable LLM-based relevance checking to automatically assess which synonyms are most relevant for your gene. This helps filter out generic or misleading terms before you select them.
+
+**Enable LLM synonym checking:**
+```bash
+python collect_literature.py BRCA1 \
+  --auto-synonyms \
+  --anthropic-api-key YOUR_ANTHROPIC_API_KEY
+```
+
+Or set the environment variable:
+```bash
+export ANTHROPIC_API_KEY="your-api-key-here"
+python collect_literature.py BRCA1 --auto-synonyms
+```
+
+**What it does:**
+1. Fetches synonyms from NCBI Gene database as usual
+2. For each synonym, uses Claude AI to assess relevance and specificity
+3. Displays synonyms with relevance markers (✓ = relevant, ✗ = not relevant) and confidence scores
+4. Shows AI reasoning for top aliases to help you make informed selections
+5. Adds a 'relevant' option to automatically select only LLM-approved synonyms
+
+**Example interactive prompt with LLM checking:**
+```
+============================================================
+Found 8 potential synonyms for 'BRCA1':
+============================================================
+
+Official Gene Symbol:
+  [1] BRCA1 [✓ 98%]
+  → Automatically included in search
+
+Gene Aliases (6 found):
+  [1] BRCC1 [✓ 85%]
+      Historical alias commonly used in literature
+  [2] FANCS [✓ 90%]
+      Fanconi anemia designation, specific to gene function
+  [3] breast cancer 1 [✗ 35%]
+      Too generic, likely to match irrelevant papers
+
+Legend: ✓ = LLM assessed as relevant, ✗ = not relevant
+
+Select synonyms to include in PubMed search:
+  - Enter numbers separated by commas (e.g., '1,2,3')
+  - Enter 'all' to include all
+  - Enter 'aliases' to include all aliases only
+  - Enter 'relevant' to include only LLM-assessed relevant synonyms
+  - Enter 'none' to skip synonym expansion
+  - Press Enter to accept automatically selected terms
+
+Your selection: relevant
+```
+
+**Benefits:**
+- Automatically filters out overly generic terms
+- Identifies verbose designations that may add noise
+- Provides confidence scores to guide your selection
+- Saves time by pre-filtering irrelevant synonyms
+
 ### Relevance Filtering (NEW!)
 
 PubMed searches sometimes return irrelevant papers where the gene symbol matches a common abbreviation (e.g., "TTR" could mean the gene Transthyretin OR "time to reimbursement"). To filter these out, the tool now supports LLM-based relevance checking using Claude (Anthropic's AI).
