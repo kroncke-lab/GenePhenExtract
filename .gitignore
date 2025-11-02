@@ -34,3 +34,7 @@ venv/
 *.csv
 *.sqlite
 *.db
+*_urls.txt
+*_log.txt
+organized_literature/
+downloads/
