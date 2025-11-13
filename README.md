@@ -68,6 +68,11 @@ python collect_literature.py SCN5A \
   --output scn5a_literature.csv
 ```
 
+> **Tip:** When entering multiline commands in bash/zsh, make sure the `\` is the final
+> character on the line—no trailing spaces—so the shell correctly treats the next line
+> as part of the same command. (On Windows `cmd`, use the `^` character for line
+> continuations.)
+
 **Retrieve more results with API key:**
 ```bash
 python collect_literature.py TP53 \
