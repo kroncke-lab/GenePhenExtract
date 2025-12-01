@@ -94,13 +94,23 @@ class RelevanceChecker:
         if abstract:
             text_to_check += f"\nAbstract: {abstract}"
 
-        prompt = f"""You are analyzing whether a scientific paper is actually about the gene "{gene_name}".
+        prompt = f"""You are analyzing whether a scientific paper studies genetic variation in the gene "{gene_name}".
 
-Sometimes gene symbols match common abbreviations that have nothing to do with the gene. For example:
-- "TTR" could mean the gene Transthyretin OR "time to reimbursement"
-- "CAT" could mean the gene Catalase OR "computed axial tomography"
+This tool extracts variant-level genetic data from literature. Mark a paper as NOT RELEVANT only when the abstract strongly indicates the study:
 
-Analyze this paper and determine if it's genuinely about the gene {gene_name}.
+• Does NOT analyze genetic variation at all (e.g., mentions gene only in passing)
+• Mentions the gene but does NOT study variants or mutation types (e.g., only discusses gene expression, protein function, cellular pathways, or general risk factors)
+• Discusses genetic information only at a broad group level (e.g., "BRCA2 mutations" as a category) with NO suggestion of variant-level detail
+• Focuses on non-genetic research areas (e.g., clinical workflows, treatment guidelines, imaging, machine learning prediction without genotypes, epidemiology without variants)
+• Clearly uses non-human organisms UNLESS it explicitly studies genetic variation applicable to human disease
+• Is about mechanistic or functional biology without reporting any specific mutations, alleles, genotypes, or patient cases
+• Is about risk factors, susceptibility, or outcomes but does NOT report individual genotypes or variant types
+
+DO NOT exclude a paper when:
+• The abstract vaguely references "mutations" or "variants" but does not list them explicitly
+• The genetic focus is unclear but plausible
+• There could be meaningful supplementary material even if the abstract underspecifies it
+• The paper might still contain individual-level or variant-level details in tables, figures, or supplement
 
 {text_to_check}
 
@@ -111,12 +121,7 @@ Respond with ONLY a JSON object with this exact format:
   "reasoning": "brief explanation"
 }}
 
-Consider:
-1. Is the gene name used in a biological/genetic context?
-2. Are there mentions of proteins, mutations, diseases, or genetic mechanisms?
-3. Or is it clearly used as an abbreviation for something else?
-
-Be strict - if you're uncertain, mark as not relevant."""
+Be PERMISSIVE - mark as relevant unless the abstract clearly indicates no genetic variation data. When in doubt, mark as relevant."""
 
         try:
             message = client.messages.create(
