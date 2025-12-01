@@ -94,13 +94,22 @@ class RelevanceChecker:
         if abstract:
             text_to_check += f"\nAbstract: {abstract}"
 
-        prompt = f"""You are analyzing whether a scientific paper is actually about the gene "{gene_name}".
+        prompt = f"""You are analyzing whether a scientific paper is actually about the gene "{gene_name}" and whether it likely contains variant- or individual-level genetic information useful for extraction.
 
 Sometimes gene symbols match common abbreviations that have nothing to do with the gene. For example:
 - "TTR" could mean the gene Transthyretin OR "time to reimbursement"
 - "CAT" could mean the gene Catalase OR "computed axial tomography"
 
-Analyze this paper and determine if it's genuinely about the gene {gene_name}.
+Analyze this paper and determine if it's genuinely about the gene {gene_name}. Only mark NOT RELEVANT when the abstract clearly shows the study is not about genetic variation, such as:
+- Discussing the gene only in passing without analyzing genetic variants
+- Focusing on expression, protein function, pathways, or other non-variant biology
+- Describing group-level mutations with no hint of variant-level detail
+- Covering non-genetic topics (clinical workflows, imaging, ML predictions without genotypes, epidemiology without variants)
+- Using non-human organisms without human-disease genetic variation
+- Mechanistic/functional biology with no specific mutations, alleles, genotypes, or patient cases
+- Risk or outcome studies that lack individual genotypes or variant types
+
+Do NOT exclude a paper when mutations/variants are mentioned generally, the genetic focus is unclear but plausible, or the abstract might hide useful variant details in tables/figures/supplements. When uncertain, treat it as relevant.
 
 {text_to_check}
 
@@ -111,12 +120,7 @@ Respond with ONLY a JSON object with this exact format:
   "reasoning": "brief explanation"
 }}
 
-Consider:
-1. Is the gene name used in a biological/genetic context?
-2. Are there mentions of proteins, mutations, diseases, or genetic mechanisms?
-3. Or is it clearly used as an abbreviation for something else?
-
-Be strict - if you're uncertain, mark as not relevant."""
+Lean toward relevance unless the abstract unmistakably indicates it is not about variant-level genetic information."""
 
         try:
             message = client.messages.create(
